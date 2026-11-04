@@ -160,8 +160,9 @@ public static partial class ToolCatalog
     [GeneratedRegex(@"whipper (\S+)")]
     private static partial Regex WhipperVersion();
 
-    // "cd-paranoia 10.2+2.0.1 libcdio 2.1.0 ..." or "This is cd-paranoia version 10.2+2.0.1".
-    [GeneratedRegex(@"(\d+\.\d+\+\d+\.\d+\.\d+)")]
+    // "cdparanoia III release 10.2 libcdio 2.1.0 x86_64-pc-linux-gnu": only the paranoia half of the
+    // package version (10.2+2.0.1) is printed; a full one is taken when a build prints it.
+    [GeneratedRegex(@"(\d+\.\d+\+\d+\.\d+\.\d+|(?<=release )\d+\.\d+)")]
     private static partial Regex ParanoiaVersion();
 
     [GeneratedRegex(@"libcdio-paranoia-(\d+\.\d+\+\d+\.\d+\.\d+)\.tar\.bz2")]

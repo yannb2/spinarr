@@ -13,8 +13,11 @@ public sealed record ToolStatus
 
     public string? Pinned => Tool.Pinned;
 
-    /// <summary>What the image holds: the pin for the whipper commit, else the version the tool reports.</summary>
-    public string? Current => Tool.Upstream == UpstreamKind.GitHubCommit ? Pinned ?? Installed : Installed ?? Pinned;
+    /// <summary>
+    /// What the image holds: the pin, which is exactly what the Dockerfile installed (cd-paranoia only
+    /// prints part of its version, whipper a made-up one), else the version the tool reports.
+    /// </summary>
+    public string? Current => Pinned ?? Installed;
 
     public bool UpdateAvailable => ToolCatalog.IsNewer(Tool, Latest, Current);
 }

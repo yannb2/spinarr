@@ -92,7 +92,8 @@ jobs:
           curl -fsS http://localhost:8187/api/stats | grep -q '"drives"'
           # Every tool runs and reports the version the Dockerfile pinned.
           docker exec smoke sh -c 'whipper -v | grep "yannb2.g$(echo $SPINARR_PIN_WHIPPER | cut -c1-7)"'
-          docker exec smoke sh -c 'cd-paranoia --version 2>&1 | grep -F "$SPINARR_PIN_CD_PARANOIA"'
+          # cd-paranoia prints "cdparanoia III release 10.2 libcdio 2.1.0": the part of its pin before the +.
+          docker exec smoke sh -c 'cd-paranoia --version 2>&1 | grep -F "release ${SPINARR_PIN_CD_PARANOIA%%+*} libcdio $SPINARR_PIN_LIBCDIO"'
           docker exec smoke sh -c 'grep -x "Version: $SPINARR_PIN_LIBCDIO" /usr/lib/pkgconfig/libcdio.pc'
           docker exec smoke sh -c 'cdrdao 2>&1 | head -n 1'
           docker exec smoke sh -c 'flac --version && metaflac --version && sox --version'

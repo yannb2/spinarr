@@ -11,8 +11,10 @@ public class ToolCatalogTests
     public void ReadsInstalledVersions()
     {
         Assert.AreEqual("0.10.0+yannb2.gfdb2f1e", ToolCatalog.InstalledVersion(Tool("whipper"), "whipper 0.10.0+yannb2.gfdb2f1e\n"));
+        // What the image's cd-paranoia printed in CI.
+        Assert.AreEqual("10.2", ToolCatalog.InstalledVersion(Tool("cd_paranoia"),
+            "cdparanoia III release 10.2 libcdio 2.1.0 x86_64-pc-linux-gnu\n(C) 2001 Monty <monty@xiph.org> and Xiphophorus"));
         Assert.AreEqual("10.2+2.0.1", ToolCatalog.InstalledVersion(Tool("cd_paranoia"), "cd-paranoia 10.2+2.0.1 (libcdio 2.1.0)"));
-        Assert.AreEqual("10.2+2.0.1", ToolCatalog.InstalledVersion(Tool("cd_paranoia"), "This is cd-paranoia version 10.2+2.0.1"));
         Assert.AreEqual("2.1.0", ToolCatalog.InstalledVersion(Tool("libcdio"), "prefix=/usr/local\nName: libcdio\nVersion: 2.1.0\nLibs: -lcdio"));
         Assert.AreEqual("1.2.5", ToolCatalog.InstalledVersion(Tool("cdrdao"), "Cdrdao version 1.2.5 - (C) Andreas Mueller <andreas@daneb.de>"));
         Assert.AreEqual("1.4.3", ToolCatalog.InstalledVersion(Tool("flac"), "flac 1.4.3"));
