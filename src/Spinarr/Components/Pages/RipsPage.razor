@@ -1,0 +1,153 @@
+@page "/rips"
+@page "/rips/{Id}"
+@implements IDisposable
+@inject RipService Rips
+
+<PageTitle>Rips · Spinarr</PageTitle>
+
+<div class="d-flex align-items-center mb-3 gap-2 flex-wrap">
+    <h2 class="mb-0 me-auto">Rips</h2>
+    @if (Id == null)
+    {
+        <input class="form-control form-control-sm" style="max-width: 16rem" placeholder="Search album or artist"
+               @bind="_search" @bind:event="oninput"/>
+        <select class="form-select form-select-sm" style="max-width: 10rem" @bind="_status">
+            <option value="">All</option>
+            <option value="Done">Done</option>
+            <option value="Failed">Failed</option>
+            <option value="Cancelled">Stopped</option>
+        </select>
+    }
+    else
+    {
+        <a class="btn btn-sm btn-outline-secondary" href="rips"><i class="bi bi-arrow-left"></i> All rips</a>
+    }
+</div>
+
+@if (Id != null)
+{
+    var job = Rips.Get(Id);
+    var record = _history.FirstOrDefault(r => r.Id == Id);
+    if (job != null)
+    {
+        <RipView Job="job"/>
+    }
+    else if (record != null)
+    {
+        <div class="card mb-3">
+            <div class="card-header d-flex align-items-center gap-2">
+                <span class="fw-semibold me-auto">@record.Title</span>
+                @RipView.StateBadge(record.State)
+            </div>
+            <div class="card-body small">
+                <p class="mb-2">@record.Summary</p>
+                @if (_logText != null)
+                {
+                    <pre class="small p-2 bg-body-tertiary rounded mb-0" style="max-height: 40rem; overflow: auto">@_logText</pre>
+                }
+                else if (record.LogFile != null)
+                {
+                    <div class="text-body-secondary">The log <code>@record.LogFile</code> is gone (moved by Lidarr?).</div>
+                }
+            </div>
+        </div>
+    }
+    else
+    {
+        <div class="alert alert-warning">No rip with this name.</div>
+    }
+}
+else
+{
+    var running = Rips.Jobs.Where(j => j.State == RipState.Running).ToList();
+    @foreach (var job in running)
+    {
+        <RipView Job="job"/>
+    }
+
+    var shown = _history.Where(Matches).ToList();
+    @if (_history.Count == 0 && running.Count == 0)
+    {
+        <p class="text-body-secondary">No rips yet. Put a CD in a drive and open it from the <a href="">Drives</a> page.</p>
+    }
+    else if (shown.Count > 0)
+    {
+        <div class="table-responsive">
+            <table class="table table-sm table-hover align-middle small">
+                <thead>
+                <tr>
+                    <th>Album</th>
+                    <th>When</th>
+                    <th class="text-end">Tracks</th>
+                    <th>AccurateRip</th>
+                    <th>State</th>
+                    <th>Folder</th>
+                </tr>
+                </thead>
+                <tbody>
+                @foreach (var record in shown)
+                {
+                    <tr class="sv-clickable-row" @onclick="@(() => Navigation.NavigateTo($"rips/{record.Id}"))">
+                        <td class="fw-semibold">@record.Title</td>
+                        <td class="text-nowrap" title="@record.StartedAt.ToLocalTime().ToString("yyyy-MM-dd HH:mm")">@Format.TimeAgo(record.EndedAt)</td>
+                        <td class="text-end">@record.Tracks</td>
+                        <td>
+                            @if (record.Accurate == record.Tracks && record.Tracks > 0)
+                            {
+                                <span class="text-success"><i class="bi bi-check-circle"></i> all</span>
+                            }
+                            else
+                            {
+                                <span class="text-body-secondary">@record.Accurate of @record.Tracks</span>
+                            }
+                        </td>
+                        <td>@RipView.StateBadge(record.State)</td>
+                        <td class="text-body-secondary sv-path">@record.Destination</td>
+                    </tr>
+                }
+                </tbody>
+            </table>
+        </div>
+    }
+}
+
+@code {
+    [Parameter] public string? Id { get; set; }
+    [Inject] private NavigationManager Navigation { get; set; } = null!;
+
+    private IReadOnlyList<RipRecord> _history = [];
+    private string _search = "";
+    private string _status = "";
+    private string? _logText;
+
+    protected override void OnInitialized() => Rips.Changed += OnChanged;
+
+    protected override void OnParametersSet()
+    {
+        _history = Rips.History();
+        _logText = null;
+        if (Id != null && Rips.Get(Id) == null && _history.FirstOrDefault(r => r.Id == Id)?.LogFile is { } log && File.Exists(log))
+        {
+            _logText = File.ReadAllText(log);
+        }
+    }
+
+    private bool Matches(RipRecord record) =>
+        (_status.Length == 0 || record.State.ToString() == _status)
+        && (_search.Length == 0 || record.Title.Contains(_search, StringComparison.OrdinalIgnoreCase));
+
+    // The running rips draw themselves; the list only changes when one ends.
+    private void OnChanged(RipJob job)
+    {
+        if (job.State != RipState.Running)
+        {
+            _ = InvokeAsync(() =>
+            {
+                _history = Rips.History();
+                StateHasChanged();
+            });
+        }
+    }
+
+    public void Dispose() => Rips.Changed -= OnChanged;
+}

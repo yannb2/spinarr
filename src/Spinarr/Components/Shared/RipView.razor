@@ -1,0 +1,196 @@
+@implements IDisposable
+@inject RipService Rips
+@inject IJSRuntime Js
+
+@* A rip as it goes: two progress bars (the whole disc, the track being read), each track's CRCs and AccurateRip answer, and what it printed. *@
+
+<div class="card mb-3">
+    <div class="card-header d-flex align-items-center gap-2 flex-wrap">
+        @if (Job.Request.Release is { } release)
+        {
+            <img src="@release.CoverUrl()" alt="" class="sv-cover sv-cover-sm" loading="lazy" onerror="this.style.visibility='hidden'"/>
+        }
+        <div class="me-auto">
+            <div class="fw-semibold">@Job.Title</div>
+            <div class="small text-body-secondary">
+                @Job.Request.Drive.DisplayName · FLAC level @Job.Request.FlacLevel
+                @if (Job.ReadOffset is { } offset)
+                {
+                    <span> · offset @Format.Offset(offset)</span>
+                }
+                <span> · @Format.Duration((Job.EndedAt ?? DateTime.UtcNow) - Job.StartedAt)</span>
+            </div>
+        </div>
+        @StateBadge(Job.State)
+        @if (Job.State == RipState.Running)
+        {
+            <button class="btn btn-sm btn-outline-danger" @onclick="() => Rips.Cancel(Job.Id)">Stop</button>
+        }
+    </div>
+    <div class="card-body">
+        @if (Job.State == RipState.Running)
+        {
+            var current = Job.Current;
+            <div class="small d-flex mb-1"><span class="me-auto">@Job.Step</span><span>@Percent(Job.Fraction)</span></div>
+            <div class="progress mb-2" role="progressbar" style="height: .9rem" aria-label="Whole disc">
+                <div class="progress-bar" style="width: @Width(Job.Fraction)"></div>
+            </div>
+            @if (current != null)
+            {
+                <div class="small d-flex mb-1 text-body-secondary">
+                    <span class="me-auto">@(current.Number == 0 ? "Hidden track" : $"Track {current.Number}"): @TrackStep(current)</span>
+                    <span>@Percent(current.Fraction)</span>
+                </div>
+                <div class="progress mb-3" role="progressbar" style="height: .5rem" aria-label="This track">
+                    <div class="progress-bar bg-info" style="width: @Width(current.Fraction)"></div>
+                </div>
+            }
+        }
+        else if (Job.Summary != null)
+        {
+            <div class="alert @(Job.State == RipState.Done ? "alert-success" : Job.State == RipState.Cancelled ? "alert-secondary" : "alert-danger") py-2 small">
+                @Job.Summary
+                @if (Job.LogFile != null)
+                {
+                    <div class="mt-1">Log: <code>@Job.LogFile</code></div>
+                }
+            </div>
+        }
+
+        @if (Job.Tracks.Count > 0)
+        {
+            var accurateRipKnown = Job.AccurateRipResponses is { Count: > 0 };
+            <div class="table-responsive">
+                <table class="table table-sm align-middle small mb-3">
+                    <thead>
+                    <tr>
+                        <th class="text-end">#</th>
+                        <th>Title</th>
+                        <th class="text-end">Length</th>
+                        <th>State</th>
+                        <th class="text-end">Quality</th>
+                        <th>Test CRC</th>
+                        <th>Copy CRC</th>
+                        <th>AccurateRip</th>
+                    </tr>
+                    </thead>
+                    <tbody>
+                    @foreach (var track in Job.Tracks.ToList())
+                    {
+                        <tr>
+                            <td class="text-end">@(track.Number == 0 ? "0" : track.Number.ToString())</td>
+                            <td>
+                                @track.Title
+                                @if (track.Artist != Job.Request.Release?.Artist)
+                                {
+                                    <span class="text-body-secondary"> · @track.Artist</span>
+                                }
+                                @if (track.Problem != null && track.State != TrackState.Done)
+                                {
+                                    <div class="text-danger">@track.Problem</div>
+                                }
+                            </td>
+                            <td class="text-end text-nowrap">@Cd.Length(track.Frames)</td>
+                            <td class="text-nowrap">@TrackBadge(track)</td>
+                            <td class="text-end">@(track.Copy != null ? $"{track.Quality * 100:0.0} %" : "")</td>
+                            <td class="sv-mono">@(track.Test?.Crc.ToString("X8"))</td>
+                            <td class="sv-mono @(track.Copy != null && !track.CrcsMatch ? "text-danger" : "")">@(track.Copy?.Crc.ToString("X8"))</td>
+                            <td class="text-nowrap">
+                                @if (track.Number == 0 || track.Copy == null)
+                                {
+                                }
+                                else if (track.AccurateRip?.Best is { } best)
+                                {
+                                    <span class="text-success" title="@($"{best.Checksum:X8} ({best.Version})")"><i class="bi bi-check-circle"></i> confidence @best.Confidence</span>
+                                }
+                                else if (track.AccurateRip?.InDatabase == true)
+                                {
+                                    <span class="text-warning" title="@($"AccurateRip has {track.AccurateRip.MaxConfidenceChecksum:X8}")"><i class="bi bi-exclamation-circle"></i> no match</span>
+                                }
+                                else
+                                {
+                                    <span class="text-body-secondary">@(accurateRipKnown ? "not in the database" : Job.AccurateRipReached ? "disc unknown" : "not reached")</span>
+                                }
+                            </td>
+                        </tr>
+                    }
+                    </tbody>
+                </table>
+            </div>
+        }
+
+        <details open="@(Job.State != RipState.Done)">
+            <summary class="small text-body-secondary">What it did</summary>
+            <pre id="rip-@Job.Id" class="small mb-0 mt-2 p-2 bg-body-tertiary rounded" style="max-height: 18rem; overflow: auto">@string.Join('\n', Job.Lines.TakeLast(400))</pre>
+        </details>
+    </div>
+</div>
+
+@code {
+    [Parameter, EditorRequired] public required RipJob Job { get; set; }
+
+    private DateTime _lastRender = DateTime.MinValue;
+
+    protected override void OnInitialized() => Rips.Changed += OnChanged;
+
+    private void OnChanged(RipJob job)
+    {
+        if (job.Id != Job.Id)
+        {
+            return;
+        }
+
+        // Progress comes many times a second: draw at most twice a second, and always when the rip ends.
+        if (job.State == RipState.Running && DateTime.UtcNow - _lastRender < TimeSpan.FromMilliseconds(500))
+        {
+            return;
+        }
+
+        _lastRender = DateTime.UtcNow;
+        _ = InvokeAsync(async () =>
+        {
+            StateHasChanged();
+            try
+            {
+                await Js.InvokeVoidAsync("spinarrScrollToEnd", $"rip-{Job.Id}");
+            }
+            catch (JSDisconnectedException)
+            {
+                // Page closed.
+            }
+        });
+    }
+
+    private static string Percent(double fraction) => $"{Math.Clamp(fraction, 0, 1) * 100:0} %";
+
+    private static string Width(double fraction) => $"{Math.Clamp(fraction, 0, 1) * 100:0.#}%";
+
+    private static string TrackStep(RipTrack track) => track.State switch
+    {
+        TrackState.Reading => track.Attempts > 1 ? $"test read (try {track.Attempts})" : "test read",
+        TrackState.Verifying => track.Attempts > 1 ? $"copy read (try {track.Attempts})" : "copy read",
+        TrackState.Encoding => "FLAC",
+        _ => ""
+    };
+
+    public static RenderFragment StateBadge(RipState state) => state switch
+    {
+        RipState.Running => @<span class="badge text-bg-primary"><span class="spinner-border spinner-border-sm me-1" style="width: .7rem; height: .7rem"></span>ripping</span>,
+        RipState.Done => @<span class="badge text-bg-success">done</span>,
+        RipState.Cancelled => @<span class="badge text-bg-secondary">stopped</span>,
+        _ => @<span class="badge text-bg-danger">failed</span>
+    };
+
+    private static RenderFragment TrackBadge(RipTrack track) => track.State switch
+    {
+        TrackState.Waiting => @<span class="text-body-secondary">waiting</span>,
+        TrackState.Reading => @<span class="badge text-bg-primary">test read</span>,
+        TrackState.Verifying => @<span class="badge text-bg-primary">copy read</span>,
+        TrackState.Encoding => @<span class="badge text-bg-info">FLAC</span>,
+        TrackState.Done => @<span class="badge text-bg-success">done</span>,
+        TrackState.Silent => @<span class="badge text-bg-secondary" title="Digital silence, not kept">silent</span>,
+        _ => @<span class="badge text-bg-danger">error</span>
+    };
+
+    public void Dispose() => Rips.Changed -= OnChanged;
+}

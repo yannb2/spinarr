@@ -20,8 +20,7 @@
 </div>
 
 <p class="text-body-secondary small">
-    Every tool is built into the image at a pinned version (whipper at a commit of the
-    <a href="https://github.com/yannb2/whipper" target="_blank" rel="noopener">fork</a>). Spinarr only looks for newer versions
+    libcdio and cd-paranoia are built into the image at a pinned version. Spinarr only looks for newer versions
     @(Tools.UpstreamCheckedAt is { } at ? $"(last look {Format.TimeAgo(at)})" : "")
     and never installs anything: an update is a new image, proposed each week as a pull request on GitHub.
     cdrdao and FLAC come with the base image's packages and move with it.

@@ -2,10 +2,11 @@
 @implements IAsyncDisposable
 @inject DriveScanner Scanner
 @inject DriveTasks Tasks
-@inject IOptions<SpinarrOptions> Options
+@inject DriveSettingsStore Store
+@inject RipService Rips
 @inject Spinarr.Toasts Toasts
 @inject IJSRuntime Js
-@using Microsoft.Extensions.Options
+@using Spinarr.Rip
 
 <PageTitle>Drives · Spinarr</PageTitle>
 
@@ -18,7 +19,7 @@
 
 <p class="text-body-secondary small">
     Set each drive up once, with a well-known audio CD in it: find its read offset, then check its audio cache.
-    Whipper saves both answers in <code>@Options.Value.WhipperConfigPath</code> and uses them on every rip.
+    Spinarr saves both answers in <code>@Store.Path</code> and uses them on every rip.
 </p>
 
 @if (_drives == null)
@@ -44,10 +45,11 @@ else
     @foreach (var drive in _drives)
     {
         var settings = WhipperConfig.Find(_settings, drive);
+        var rip = Rips.Running(drive.Device);
         var state = _states.GetValueOrDefault(drive.Device);
         var task = Tasks.Get(drive.Device);
         var running = task?.State == DriveTaskState.Running;
-        // Unknown: the drive did not answer the tray question (some USB bridges); let whipper try.
+        // Unknown: the drive did not answer the tray question (some USB bridges); let the read try.
         var hasCd = state is not (DiscState.NoDisc or DiscState.TrayOpen or DiscState.DataDisc);
         <div class="card mb-3">
             <div class="card-header d-flex align-items-center gap-2 flex-wrap">
@@ -59,7 +61,13 @@ else
                 }
                 <code class="small">@drive.Device</code>
                 <span class="ms-auto">@StateBadge(state)</span>
-                <button class="btn btn-sm btn-outline-secondary" @onclick="() => Eject(drive)" disabled="@running" title="Open the tray">
+                @if (hasCd && state != DiscState.NotReady)
+                {
+                    <a class="btn btn-sm btn-primary" href="@($"disc/{Id(drive)}")" title="Look the disc up and rip it">
+                        <i class="bi bi-disc"></i> @(rip != null ? "Rip running" : "Rip this CD")
+                    </a>
+                }
+                <button class="btn btn-sm btn-outline-secondary" @onclick="() => Eject(drive)" disabled="@(running || rip != null)" title="Open the tray">
                     <i class="bi bi-eject"></i>
                 </button>
             </div>
@@ -67,7 +75,7 @@ else
                 @if (!drive.Identified)
                 {
                     <div class="alert alert-warning small py-2">
-                        The kernel gave no name for this drive, so whipper can't save its settings. Check that compose passes
+                        The kernel gave no name for this drive, so Spinarr can't save its settings. Check that compose passes
                         the device itself (not a copy of the node) and that <code>/sys</code> is readable.
                     </div>
                 }
@@ -90,8 +98,8 @@ else
                                 }
                             </td>
                             <td class="text-end">
-                                <button class="btn btn-sm btn-outline-primary text-nowrap" disabled="@(running || !hasCd || !drive.Identified)"
-                                        title="@(hasCd ? "Rips track 1 at each likely offset until AccurateRip agrees (minutes to an hour)" : "Put a well-known audio CD in first")"
+                                <button class="btn btn-sm btn-outline-primary text-nowrap" disabled="@(running || rip != null || !hasCd || !drive.Identified)"
+                                        title="@(hasCd ? "Reads the first tracks once and tries the known offsets until AccurateRip agrees (a few minutes)" : "Put a well-known audio CD in first")"
                                         @onclick="() => Start(drive, DriveTaskKind.FindOffset)">
                                     <i class="bi bi-search"></i> Find offset
                                 </button>
@@ -107,7 +115,7 @@ else
                                         break;
                                     case false:
                                         <span class="text-warning"><i class="bi bi-exclamation-circle"></i> cd-paranoia cannot defeat it</span>
-                                        <div class="small text-body-secondary">Rips still work: whipper reads each track twice and checks it against AccurateRip.</div>
+                                        <div class="small text-body-secondary">Rips still work: Spinarr reads each track twice and checks it against AccurateRip.</div>
                                         break;
                                     default:
                                         <span class="badge text-bg-secondary">not checked</span>
@@ -115,7 +123,7 @@ else
                                 }
                             </td>
                             <td class="text-end">
-                                <button class="btn btn-sm btn-outline-primary text-nowrap" disabled="@(running || !hasCd || !drive.Identified)"
+                                <button class="btn btn-sm btn-outline-primary text-nowrap" disabled="@(running || rip != null || !hasCd || !drive.Identified)"
                                         title="@(hasCd ? "Reads the disc a few times to see if the drive's cache gets in the way (a few minutes)" : "Put an audio CD in first")"
                                         @onclick="() => Start(drive, DriveTaskKind.AnalyzeCache)">
                                     <i class="bi bi-speedometer2"></i> Check cache
@@ -148,7 +156,7 @@ else
                     </div>
                     <div class="text-body-secondary mt-1">
                         For a drive you already know, from the <a href="https://www.accuraterip.com/driveoffsets.htm" target="_blank" rel="noopener">AccurateRip list</a>
-                        or an old <code>whipper.conf</code>. The value whipper finds itself is the safer one.
+                        or an old <code>whipper.conf</code>. The value Spinarr finds itself is the safer one.
                     </div>
                 </details>
 
@@ -225,7 +233,7 @@ else
         _scanning = false;
     }
 
-    private void ReadSettings() => _settings = WhipperConfig.Read(Options.Value.WhipperConfigPath);
+    private void ReadSettings() => _settings = Store.All();
 
     private void ReadStates()
     {
@@ -339,23 +347,20 @@ else
 
         try
         {
-            var path = Options.Value.WhipperConfigPath;
-            Directory.CreateDirectory(Path.GetDirectoryName(path)!);
-            var text = File.Exists(path) ? File.ReadAllText(path) : "";
-            File.WriteAllText(path, WhipperConfig.SetDrive(text, drive, edit.Offset, cache));
+            Store.Save(drive, edit.Offset, cache);
             _edits.Remove(drive.Device);
             ReadSettings();
-            Toasts.Success("Saved in whipper.conf.");
+            Toasts.Success("Saved.");
         }
         catch (Exception e) when (e is IOException or UnauthorizedAccessException)
         {
-            Toasts.Error($"Could not write whipper.conf: {e.Message}");
+            Toasts.Error($"Could not write {Store.Path}: {e.Message}");
         }
     }
 
-    private static string Id(OpticalDrive drive) => Id(drive.Device);
+    private static string Id(OpticalDrive drive) => drive.PageId;
 
-    private static string Id(string device) => device.Replace('/', '-').Trim('-');
+    private static string Id(string device) => OpticalDrive.PageIdOf(device);
 
     private static RenderFragment StateBadge(DiscState state) => state switch
     {

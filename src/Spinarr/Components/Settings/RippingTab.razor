@@ -1,0 +1,71 @@
+@inject IOptions<SpinarrOptions> Options
+@inject DriveSettingsStore DriveSettings
+@using Microsoft.Extensions.Options
+
+<p class="text-body-secondary small">
+    Set in compose with environment variables (shown next to each one), then recreate the container.
+    The FLAC level and the tries can also be changed for one rip on the disc page.
+</p>
+
+<div class="card mb-3">
+    <div class="card-header"><i class="bi bi-disc me-2"></i>Rips</div>
+    <table class="table table-sm small mb-0">
+        <tbody>
+        @foreach (var (name, value, variable, help) in Rows)
+        {
+            <tr>
+                <td class="ps-3 text-body-secondary text-nowrap" style="width: 12rem">@name</td>
+                <td><code>@value</code><div class="text-body-secondary">@help</div></td>
+                <td class="pe-3 text-nowrap"><code class="text-body-secondary">@variable</code></td>
+            </tr>
+        }
+        </tbody>
+    </table>
+</div>
+
+<div class="card mb-3">
+    <div class="card-header d-flex align-items-center"><i class="bi bi-vinyl me-2"></i>Drives<a href="" class="ms-auto small">Set them up</a></div>
+    <div class="card-body p-0">
+        @if (DriveSettings.All() is { Count: > 0 } drives)
+        {
+            <table class="table table-sm small mb-0">
+                <thead>
+                <tr><th class="ps-3">Drive</th><th>Firmware</th><th>Read offset</th><th class="pe-3">Audio cache</th></tr>
+                </thead>
+                <tbody>
+                @foreach (var drive in drives)
+                {
+                    <tr>
+                        <td class="ps-3">@drive.Vendor @drive.Model</td>
+                        <td>@drive.Release</td>
+                        <td>@(drive.ReadOffset is { } o ? Format.Offset(o) : "")</td>
+                        <td class="pe-3">@(drive.DefeatsCache switch { true => "defeated", false => "not defeated", _ => "" })</td>
+                    </tr>
+                }
+                </tbody>
+            </table>
+        }
+        else
+        {
+            <p class="sv-missing m-3">No drive set up yet.</p>
+        }
+    </div>
+    <div class="card-footer small text-body-secondary">Kept in <code>@DriveSettings.Path</code>.</div>
+</div>
+
+@code {
+    private IEnumerable<(string Name, string Value, string Variable, string Help)> Rows
+    {
+        get
+        {
+            var o = Options.Value;
+            yield return ("Rip folder", o.RipFolder, "Spinarr__RipFolder", "Each album in {Artist}/{Album (Year)}; Lidarr must see it at the same path.");
+            yield return ("Work folder", o.WorkFolder, "", "The rip in progress, removed when it ends.");
+            yield return ("FLAC level", o.FlacLevel.ToString(), "Spinarr__FlacLevel", "0 (fastest) to 8 (smallest); every level is lossless.");
+            yield return ("Tries per track", o.Retries.ToString(), "Spinarr__Retries", "How many times a track is read again when its two reads differ.");
+            yield return ("Drives", o.Devices.Count == 0 ? "every /dev/sr*" : string.Join(", ", o.Devices), "Spinarr__Devices__0", "");
+            yield return ("Config folder", o.ConfigFolder, "Spinarr__ConfigFolder", "drives.json, rips.json, logs and keys.");
+            yield return ("Cache", o.CacheFolder, "Spinarr__CacheFolder", "MusicBrainz answers (7 days) and AccurateRip files.");
+        }
+    }
+}

@@ -1,0 +1,340 @@
+@page "/disc/{DriveId}"
+@implements IDisposable
+@inject DriveScanner Scanner
+@inject DriveSettingsStore DriveSettings
+@inject DriveTasks Tasks
+@inject DiscReader Reader
+@inject MusicBrainzClient MusicBrainz
+@inject RipService Rips
+@inject IOptions<SpinarrOptions> Options
+@inject Spinarr.Toasts Toasts
+@using Microsoft.Extensions.Options
+
+<PageTitle>@(_picked?.Title ?? "Disc") · Spinarr</PageTitle>
+
+<div class="d-flex align-items-center mb-3 gap-2 flex-wrap">
+    <h2 class="mb-0 me-auto">@(_drive?.DisplayName ?? "Disc")</h2>
+    <a class="btn btn-sm btn-outline-secondary" href=""><i class="bi bi-arrow-left"></i> Drives</a>
+    <button class="btn btn-sm btn-outline-secondary" @onclick="ReadDiscAsync" disabled="@(_busy || _job is { State: RipState.Running })">
+        <i class="bi bi-arrow-clockwise"></i> Read the disc again
+    </button>
+</div>
+
+@if (_problem != null)
+{
+    <div class="alert alert-warning">@_problem</div>
+}
+
+@if (_job != null)
+{
+    <RipView Job="_job"/>
+    @if (_job.State != RipState.Running)
+    {
+        <button class="btn btn-sm btn-outline-secondary mb-3" @onclick="() => _job = null">Rip it again</button>
+    }
+}
+else if (_busy)
+{
+    <div class="text-body-secondary"><span class="spinner-border spinner-border-sm me-2"></span>@_busyText</div>
+}
+else if (_toc != null && _disc != null && _drive != null)
+{
+    var settings = DriveSettings.Find(_drive);
+    <div class="row g-3">
+        <div class="col-12 col-xl-8">
+            <div class="card mb-3">
+                <div class="card-header d-flex align-items-center gap-2">
+                    <i class="bi bi-search"></i>
+                    <span class="me-auto">MusicBrainz</span>
+                    @if (_lookup?.Fuzzy == true && _lookup.Releases.Count > 0)
+                    {
+                        <span class="badge text-bg-warning" title="No release has this disc ID; these have the same track lengths">near matches</span>
+                    }
+                </div>
+                <div class="card-body">
+                    @if (_lookup?.Problem != null)
+                    {
+                        <div class="alert alert-warning py-2 small">@_lookup.Problem</div>
+                    }
+
+                    @if (_lookup is { Releases.Count: 0 })
+                    {
+                        <p class="small">
+                            MusicBrainz doesn't know this disc. Rip it as an unknown disc, or
+                            <a href="@DiscIds.MusicBrainzSubmitUrl(_toc)" target="_blank" rel="noopener">add it to MusicBrainz</a>
+                            and read the disc again, so the files get their names and tags (and Lidarr can match them).
+                        </p>
+                    }
+
+                    @foreach (var release in _lookup?.Releases ?? [])
+                    {
+                        var medium = release.MediumFor(_disc.MusicBrainz, _disc.AudioTracks);
+                        <div class="d-flex gap-3 p-2 mb-2 rounded border sv-release @(release == _picked ? "active" : "")" @onclick="() => Pick(release)">
+                            <img src="@release.CoverUrl()" alt="" class="sv-cover sv-cover-sm flex-shrink-0" loading="lazy" onerror="this.style.visibility='hidden'"/>
+                            <div class="flex-grow-1 small">
+                                <div class="fw-semibold fs-6">@release.Artist – @release.Title</div>
+                                <div class="text-body-secondary">
+                                    @string.Join(" · ", new[]
+                                    {
+                                        release.Date, release.Country, string.Join(", ", release.Labels.Select(l => l.Name).Distinct()),
+                                        string.Join(", ", release.Labels.Select(l => l.CatalogNumber).Distinct()), release.Barcode,
+                                        medium is { } m ? $"{m.Format}{(release.Media.Count > 1 ? $" {m.Position} of {release.Media.Count}" : "")}" : ""
+                                    }.Where(p => p.Length > 0))
+                                </div>
+                                @if (release.Disambiguation.Length > 0)
+                                {
+                                    <div class="text-body-secondary fst-italic">@release.Disambiguation</div>
+                                }
+                            </div>
+                            <a class="small text-nowrap" href="https://musicbrainz.org/release/@release.Id" target="_blank" rel="noopener"
+                               @onclick:stopPropagation="true">MusicBrainz <i class="bi bi-box-arrow-up-right"></i></a>
+                        </div>
+                    }
+
+                    <div class="d-flex gap-2 mt-2">
+                        <input class="form-control form-control-sm" style="max-width: 26rem" placeholder="Another release: paste its MusicBrainz link or ID"
+                               @bind="_releaseInput"/>
+                        <button class="btn btn-sm btn-outline-secondary" @onclick="LoadReleaseAsync" disabled="@string.IsNullOrWhiteSpace(_releaseInput)">Use it</button>
+                    </div>
+                </div>
+            </div>
+
+            <div class="card mb-3">
+                <div class="card-header"><i class="bi bi-music-note-list me-2"></i>Tracks</div>
+                <div class="table-responsive">
+                    <table class="table table-sm align-middle small mb-0">
+                        <thead>
+                        <tr>
+                            <th class="text-end ps-3">#</th>
+                            <th>Title</th>
+                            <th class="text-end">Length</th>
+                            <th class="pe-3">File</th>
+                        </tr>
+                        </thead>
+                        <tbody>
+                        @foreach (var (track, index) in _toc.AudioTracks.Select((t, i) => (t, i)))
+                        {
+                            var mb = PickedMedium?.Tracks.FirstOrDefault(t => t.Position == index + 1);
+                            var title = mb?.Title ?? track.CdText.GetValueOrDefault("TITLE") ?? $"Track {index + 1:00}";
+                            <tr>
+                                <td class="text-end ps-3">@track.Number</td>
+                                <td>
+                                    @title
+                                    @if (mb != null && mb.Artist != _picked?.Artist)
+                                    {
+                                        <span class="text-body-secondary"> · @mb.Artist</span>
+                                    }
+                                </td>
+                                <td class="text-end text-nowrap">@Cd.Length(_toc.TrackLength(track.Number))</td>
+                                <td class="pe-3 text-body-secondary">@RipNaming.TrackFile(_picked, PickedMedium, track.Number, title)</td>
+                            </tr>
+                        }
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+        <div class="col-12 col-xl-4">
+            <div class="card mb-3">
+                <div class="card-header"><i class="bi bi-disc me-2"></i>Rip</div>
+                <div class="card-body small">
+                    <div class="mb-2">
+                        <div class="text-body-secondary">Goes to</div>
+                        <code>@Path.Combine(Options.Value.RipFolder, RipNaming.AlbumFolder(_picked, _disc))</code>
+                    </div>
+                    <div class="row g-2 mb-3">
+                        <div class="col-6">
+                            <label class="form-label mb-1">FLAC level</label>
+                            <select class="form-select form-select-sm" @bind="_flacLevel">
+                                @for (var level = 0; level <= 8; level++)
+                                {
+                                    <option value="@level">@level@(level == 8 ? " (smallest)" : level == 0 ? " (fastest)" : "")</option>
+                                }
+                            </select>
+                        </div>
+                        <div class="col-6">
+                            <label class="form-label mb-1" title="How many times a track is read again when the two reads differ">Tries per track</label>
+                            <input class="form-control form-control-sm" type="number" min="1" max="20" @bind="_retries"/>
+                        </div>
+                    </div>
+                    @if (settings?.ReadOffset is not { } offset)
+                    {
+                        <div class="alert alert-warning py-2">
+                            This drive has no read offset yet. Find it on the <a href="">Drives page</a> first, with a well-known CD.
+                        </div>
+                    }
+                    else
+                    {
+                        <div class="mb-2 text-body-secondary">
+                            Read offset @Format.Offset(offset), audio cache
+                            @(settings.DefeatsCache switch { true => "defeated", false => "not defeated", _ => "not checked" }).
+                        </div>
+                    }
+                    <button class="btn btn-primary w-100" @onclick="Rip"
+                            disabled="@(settings?.ReadOffset == null || Tasks.IsRunning(_drive.Device))">
+                        <i class="bi bi-record-circle me-1"></i>Rip @(_picked == null ? "as an unknown disc" : "")
+                    </button>
+                    <div class="text-body-secondary mt-2">
+                        Each track is read twice and the two CRCs compared, then checked against AccurateRip.
+                        The log is in EAC's layout, next to the files, with a cue sheet.
+                    </div>
+                </div>
+            </div>
+
+            <div class="card mb-3">
+                <div class="card-header"><i class="bi bi-fingerprint me-2"></i>Disc</div>
+                <table class="table table-sm small mb-0">
+                    <tbody>
+                    <tr><td class="ps-3 text-body-secondary">Audio tracks</td><td class="pe-3">@_disc.AudioTracks@(_toc.HasDataTracks ? " + data" : "")</td></tr>
+                    <tr><td class="ps-3 text-body-secondary">Length</td><td class="pe-3">@Cd.Length(_toc.AudioLength)</td></tr>
+                    <tr><td class="ps-3 text-body-secondary">MusicBrainz ID</td><td class="pe-3 sv-mono text-break">@_disc.MusicBrainz</td></tr>
+                    <tr><td class="ps-3 text-body-secondary">freedb ID</td><td class="pe-3 sv-mono">@_disc.Freedb</td></tr>
+                    <tr><td class="ps-3 text-body-secondary">AccurateRip ID</td><td class="pe-3 sv-mono">@_disc.AccurateRip1-@_disc.AccurateRip2</td></tr>
+                    @if (_toc.Catalog != null)
+                    {
+                        <tr><td class="ps-3 text-body-secondary">Barcode on disc</td><td class="pe-3 sv-mono">@_toc.Catalog</td></tr>
+                    }
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    [Parameter] public string DriveId { get; set; } = "";
+
+    private OpticalDrive? _drive;
+    private Toc? _toc;
+    private DiscIdentity? _disc;
+    private MbLookup? _lookup;
+    private MbRelease? _picked;
+    private RipJob? _job;
+    private string? _problem;
+    private bool _busy;
+    private string _busyText = "";
+    private string? _releaseInput;
+    private int _flacLevel;
+    private int _retries;
+    private CancellationTokenSource _stop = new();
+
+    private MbMedium? PickedMedium => _picked != null && _disc != null ? _picked.MediumFor(_disc.MusicBrainz, _disc.AudioTracks) : null;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        _flacLevel = Options.Value.FlacLevel;
+        _retries = Options.Value.Retries;
+        var drives = await Scanner.ScanAsync();
+        _drive = drives.FirstOrDefault(d => d.PageId == DriveId);
+        if (_drive == null)
+        {
+            _problem = "This drive is gone: go back to the Drives page.";
+            return;
+        }
+
+        _job = Rips.Running(_drive.Device);
+        if (_job == null)
+        {
+            await ReadDiscAsync();
+        }
+    }
+
+    private async Task ReadDiscAsync()
+    {
+        if (_drive == null)
+        {
+            return;
+        }
+
+        if (Tasks.IsRunning(_drive.Device))
+        {
+            _problem = "A drive setup task is running on this drive: wait for it to end.";
+            return;
+        }
+
+        (_busy, _problem, _toc, _disc, _lookup, _picked) = (true, null, null, null, null, null);
+        try
+        {
+            _busyText = "Reading the table of contents…";
+            StateHasChanged();
+            var path = Path.Combine(Options.Value.CacheFolder, "toc", $"{DriveId}.toc");
+            var (toc, problem) = await Reader.ReadTocAsync(_drive.Device, true, path, null, _stop.Token);
+            if (toc == null)
+            {
+                _problem = problem ?? "No table of contents: is there an audio CD in the drive?";
+                return;
+            }
+
+            _toc = toc;
+            _disc = DiscIds.Of(toc);
+            _busyText = "Asking MusicBrainz…";
+            StateHasChanged();
+            _lookup = await MusicBrainz.LookupAsync(_disc.MusicBrainz, DiscIds.MusicBrainzToc(toc), _stop.Token);
+            _picked = _lookup.Releases.Count == 1 && !_lookup.Fuzzy ? _lookup.Releases[0] : null;
+        }
+        catch (OperationCanceledException)
+        {
+            // Page closed.
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private void Pick(MbRelease release) => _picked = _picked == release ? null : release;
+
+    private async Task LoadReleaseAsync()
+    {
+        var input = _releaseInput?.Trim() ?? "";
+        var id = System.Text.RegularExpressions.Regex.Match(input, "[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}");
+        if (!id.Success)
+        {
+            Toasts.Warning("That is not a MusicBrainz release link or ID.");
+            return;
+        }
+
+        var (release, problem) = await MusicBrainz.ReleaseAsync(id.Value, _stop.Token);
+        if (release == null)
+        {
+            Toasts.Warning(problem ?? "Not found.");
+            return;
+        }
+
+        if (_disc != null && release.MediumFor(_disc.MusicBrainz, _disc.AudioTracks) == null)
+        {
+            Toasts.Warning($"No disc of this release has {_disc.AudioTracks} tracks.");
+            return;
+        }
+
+        _lookup = _lookup == null ? new MbLookup([release], true, null)
+            : _lookup with { Releases = [release, .. _lookup.Releases.Where(r => r.Id != release.Id)] };
+        _picked = release;
+        _releaseInput = null;
+    }
+
+    private void Rip()
+    {
+        if (_drive == null || _disc == null)
+        {
+            return;
+        }
+
+        var request = new RipRequest(_drive, _disc, _picked, PickedMedium, Math.Clamp(_flacLevel, 0, 8), Math.Clamp(_retries, 1, 20));
+        var (job, problem) = Rips.Start(request);
+        if (job == null)
+        {
+            Toasts.Warning(problem ?? "The rip could not start.");
+            return;
+        }
+
+        _job = job;
+    }
+
+    public void Dispose()
+    {
+        _stop.Cancel();
+        _stop.Dispose();
+    }
+}

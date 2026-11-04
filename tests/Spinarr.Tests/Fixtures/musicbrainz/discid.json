@@ -1,0 +1,64 @@
+{
+  "id": "KnpGsLhvH.lPrNc1PBL21lb9Bg4-",
+  "sectors": 195856,
+  "offset-count": 12,
+  "releases": [
+    {
+      "id": "0b9d4b47-2d1f-4dcb-8b58-cb4c3f0f1d0a",
+      "title": "Ladyhawke",
+      "status": "Official",
+      "date": "2008-09-22",
+      "country": "GB",
+      "barcode": "602517737280",
+      "disambiguation": "",
+      "artist-credit": [
+        { "name": "Ladyhawke", "joinphrase": "", "artist": { "id": "e6b9f7a6-cd3a-4b33-a6e0-b6a9c1b5f2d1", "name": "Ladyhawke" } }
+      ],
+      "label-info": [
+        { "catalog-number": "1773809", "label": { "id": "x", "name": "Modular Recordings" } }
+      ],
+      "release-group": {
+        "id": "8c1e7b7e-6c9a-4a8f-9b5a-0d8f3e2a7b11",
+        "primary-type": "Album",
+        "secondary-types": [],
+        "first-release-date": "2008-09-22"
+      },
+      "media": [
+        {
+          "position": 1,
+          "format": "Enhanced CD",
+          "title": "",
+          "discs": [ { "id": "KnpGsLhvH.lPrNc1PBL21lb9Bg4-", "sectors": 195856 } ],
+          "tracks": [
+            {
+              "id": "a1a1a1a1-0000-0000-0000-000000000001",
+              "position": 1,
+              "number": "1",
+              "title": "Magic",
+              "length": 207000,
+              "recording": {
+                "id": "b1b1b1b1-0000-0000-0000-000000000001",
+                "title": "Magic",
+                "length": 207000,
+                "isrcs": [ "GBUM70810800" ],
+                "artist-credit": [ { "name": "Ladyhawke", "joinphrase": "", "artist": { "id": "e6b9f7a6-cd3a-4b33-a6e0-b6a9c1b5f2d1" } } ]
+              }
+            },
+            {
+              "id": "a1a1a1a1-0000-0000-0000-000000000002",
+              "position": 2,
+              "number": "2",
+              "title": "Manipulating Woman",
+              "length": null,
+              "artist-credit": [
+                { "name": "Ladyhawke", "joinphrase": " feat. ", "artist": { "id": "e6b9f7a6-cd3a-4b33-a6e0-b6a9c1b5f2d1" } },
+                { "name": "Guest", "joinphrase": "", "artist": { "id": "c2c2c2c2-0000-0000-0000-000000000002" } }
+              ],
+              "recording": { "id": "b1b1b1b1-0000-0000-0000-000000000002", "title": "Manipulating Woman", "length": 215000 }
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

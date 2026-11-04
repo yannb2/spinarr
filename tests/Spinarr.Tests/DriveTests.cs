@@ -100,21 +100,31 @@ public class DriveTests
     }
 
     [TestMethod]
-    public void RunsWhipperWithTheDevice()
+    public void KeepsDriveSettingsAndTakesOverAnOldWhipperConf()
     {
-        CollectionAssert.AreEqual(new[] { "offset", "find", "-d", "/dev/sr0" }, DriveTasks.Arguments(DriveTaskKind.FindOffset, "/dev/sr0").ToArray());
-        CollectionAssert.AreEqual(new[] { "drive", "analyze", "-d", "/dev/sr1" }, DriveTasks.Arguments(DriveTaskKind.AnalyzeCache, "/dev/sr1").ToArray());
+        using var root = new TempFolder();
+        root.Write("config/whipper/whipper.conf",
+            "[drive:HL-DT-ST%3ADVDRAM%20GH40L%3A1.04]\nvendor = HL-DT-ST\nmodel = DVDRAM GH40L\nrelease = 1.04\nread_offset = 667\n");
+        var options = MsOptions.Create(new SpinarrOptions { ConfigFolder = root.Path("config") });
+        var drive = new OpticalDrive("/dev/sr0", "HL-DT-ST", "DVDRAM GH40L", "1.04", []);
+
+        var store = new DriveSettingsStore(options, NullLogger<DriveSettingsStore>.Instance);
+        Assert.AreEqual(667, store.Find(drive)?.ReadOffset);
+        Assert.IsNull(store.Find(drive)?.DefeatsCache);
+
+        store.Save(drive, null, true);
+        var reloaded = new DriveSettingsStore(options, NullLogger<DriveSettingsStore>.Instance);
+        Assert.AreEqual(667, reloaded.Find(drive)?.ReadOffset);
+        Assert.IsTrue(reloaded.Find(drive)?.DefeatsCache);
+        Assert.IsTrue(File.Exists(root.Path("config/drives.json")));
     }
 
     [TestMethod]
-    public void WhipperRunsWithItsSettingsInConfig()
+    public void TriesTheCommonOffsetsFirstAndEachOnce()
     {
-        var environment = new SpinarrOptions { WhipperHome = "/config", CacheFolder = "/config/cache" }.WhipperEnvironment;
-
-        Assert.AreEqual("/config", environment["XDG_CONFIG_HOME"]);
-        Assert.AreEqual("/config/cache", environment["XDG_CACHE_HOME"]);
-        Assert.AreEqual("1", environment["PYTHONUNBUFFERED"]);
-        Assert.AreEqual("/config/whipper/whipper.conf", new SpinarrOptions { WhipperHome = "/config" }.WhipperConfigPath);
+        Assert.AreEqual(6, DriveTasks.KnownOffsets[0]);
+        Assert.AreEqual(667, DriveTasks.KnownOffsets[1]);
+        Assert.AreEqual(DriveTasks.KnownOffsets.Count, DriveTasks.KnownOffsets.Distinct().Count());
     }
 
     private static DriveScanner Scanner(TempFolder root) =>

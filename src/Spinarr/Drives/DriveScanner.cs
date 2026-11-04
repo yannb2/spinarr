@@ -16,8 +16,13 @@ public sealed record OpticalDrive(string Device, string Vendor, string Model, st
         ? name
         : Device;
 
-    /// <summary>True when the kernel told us who made it; whipper needs that to save settings.</summary>
+    /// <summary>True when the kernel told us who made it; Spinarr needs that to save its settings.</summary>
     public bool Identified => Vendor.Length > 0 || Model.Length > 0;
+
+    /// <summary>The drive in a page address: "sr0" for /dev/sr0.</summary>
+    public string PageId => PageIdOf(Device);
+
+    public static string PageIdOf(string device) => device.Replace("/dev/", "").Replace('/', '-').Trim('-');
 }
 
 /// <summary>

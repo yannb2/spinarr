@@ -2,21 +2,32 @@ namespace Spinarr.Options;
 
 /// <summary>
 /// Settings from appsettings.json, or from environment variables in Docker:
-/// <c>Spinarr__WhipperHome=/config</c>, <c>Spinarr__Devices__0=/dev/sr0</c>.
+/// <c>Spinarr__RipFolder=/downloads/rips/music</c>, <c>Spinarr__Devices__0=/dev/sr0</c>.
 /// </summary>
 public class SpinarrOptions
 {
     public const string Section = "Spinarr";
 
     /// <summary>
-    /// Whipper keeps its settings in $XDG_CONFIG_HOME/whipper/whipper.conf: the read offset and the
-    /// cache result of each drive, found once on the Drives page. Spinarr runs whipper with
-    /// XDG_CONFIG_HOME set here, so they live in /config and survive a new image.
+    /// Spinarr's own files: drives.json (each drive's read offset and cache answer), the keys
+    /// ASP.NET signs its forms with, and the cache.
     /// </summary>
-    public string WhipperHome { get; set; } = "/config";
+    public string ConfigFolder { get; set; } = "/config";
 
-    /// <summary>Whipper's caches (MusicBrainz and AccurateRip answers): $XDG_CACHE_HOME.</summary>
+    /// <summary>MusicBrainz and AccurateRip answers already fetched.</summary>
     public string CacheFolder { get; set; } = "/config/cache";
+
+    /// <summary>
+    /// Where rips go: each album in {Artist}/{Album (Year)}, ready for Lidarr, and the work folder
+    /// of a rip in progress under .work. Lidarr must see this folder at the same path.
+    /// </summary>
+    public string RipFolder { get; set; } = "/downloads/rips/music";
+
+    /// <summary>FLAC compression level, 0 to 8: the disc page starts with this one.</summary>
+    public int FlacLevel { get; set; } = 8;
+
+    /// <summary>How many times a track is read again when its test and copy CRCs differ.</summary>
+    public int Retries { get; set; } = 5;
 
     /// <summary>
     /// The disc drives to use. Empty: every /dev/sr* the container can see (compose passes them
@@ -34,23 +45,13 @@ public class SpinarrOptions
     /// <summary>Where the device nodes are. Only changed for tests and development.</summary>
     public string DevRoot { get; set; } = "/dev";
 
-    public string WhipperConfigPath => Path.Combine(WhipperHome, "whipper", "whipper.conf");
-
-    /// <summary>What whipper needs in its environment, every time it runs.</summary>
-    public IReadOnlyDictionary<string, string> WhipperEnvironment => new Dictionary<string, string>
-    {
-        ["XDG_CONFIG_HOME"] = Path.GetFullPath(WhipperHome),
-        ["XDG_CACHE_HOME"] = Path.GetFullPath(CacheFolder),
-        // Lines as they happen, not in blocks when the pipe buffer fills.
-        ["PYTHONUNBUFFERED"] = "1",
-        ["PYTHONIOENCODING"] = "utf-8",
-        ["LC_ALL"] = "C.UTF-8",
-        ["LANG"] = "C.UTF-8"
-    };
+    public string WorkFolder => Path.Combine(RipFolder, ".work");
 
     public SpinarrOptions WithDefaults()
     {
         Devices = Devices.Where(d => !string.IsNullOrWhiteSpace(d)).Select(d => d.Trim()).Distinct().ToList();
+        FlacLevel = Math.Clamp(FlacLevel, 0, 8);
+        Retries = Math.Clamp(Retries, 1, 20);
         return this;
     }
 }
@@ -58,7 +59,6 @@ public class SpinarrOptions
 /// <summary>The tools, by name on the PATH unless set.</summary>
 public class ToolPaths
 {
-    public string Whipper { get; set; } = "whipper";
     public string CdParanoia { get; set; } = "cd-paranoia";
     public string Cdrdao { get; set; } = "cdrdao";
     public string Flac { get; set; } = "flac";
@@ -67,7 +67,7 @@ public class ToolPaths
 
 public class UpdateSettings
 {
-    /// <summary>Look for newer tool versions upstream (GitHub, ftp.gnu.org). Nothing is ever installed.</summary>
+    /// <summary>Look for newer tool versions upstream (ftp.gnu.org). Nothing is ever installed.</summary>
     public bool Enabled { get; set; } = true;
 
     public int IntervalHours { get; set; } = 24;

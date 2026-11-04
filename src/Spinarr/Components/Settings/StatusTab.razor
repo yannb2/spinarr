@@ -1,0 +1,93 @@
+@inject ToolStatusService Tools
+@inject IOptions<SpinarrOptions> Options
+@inject RipService Rips
+@using Microsoft.Extensions.Options
+
+<p class="text-body-secondary small">What Spinarr finds and runs with right now.</p>
+
+<div class="row g-3">
+    <div class="col-12 col-xl-6">
+        <div class="card h-100">
+            <div class="card-header"><i class="bi bi-folder me-2"></i>Folders</div>
+            <table class="table table-sm small mb-0">
+                <tbody>
+                @foreach (var (name, path) in new[] { ("Rips", Options.Value.RipFolder), ("Config", Options.Value.ConfigFolder), ("Cache", Options.Value.CacheFolder) })
+                {
+                    var problem = Writable(path);
+                    <tr>
+                        <td class="ps-3 text-body-secondary">@name</td>
+                        <td class="sv-path">@path</td>
+                        <td class="pe-3">
+                            @if (problem == null)
+                            {
+                                <span class="text-success"><i class="bi bi-check-circle"></i> writable</span>
+                            }
+                            else
+                            {
+                                <span class="text-danger" title="@problem"><i class="bi bi-x-circle"></i> @problem</span>
+                            }
+                        </td>
+                    </tr>
+                }
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <div class="col-12 col-xl-6">
+        <div class="card h-100">
+            <div class="card-header d-flex align-items-center"><i class="bi bi-tools me-2"></i>Tools<a href="tools" class="ms-auto small">Versions and updates</a></div>
+            <table class="table table-sm small mb-0">
+                <tbody>
+                @foreach (var status in Tools.Statuses)
+                {
+                    <tr>
+                        <td class="ps-3">@status.Tool.Name</td>
+                        <td class="pe-3">
+                            @if (status.Missing)
+                            {
+                                <span class="text-danger">Not found</span>
+                            }
+                            else
+                            {
+                                @(status.Installed ?? "?")
+                            }
+                        </td>
+                    </tr>
+                }
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <div class="col-12 col-xl-6">
+        <div class="card h-100">
+            <div class="card-header"><i class="bi bi-box me-2"></i>Spinarr</div>
+            <table class="table table-sm mb-0 small">
+                <tbody>
+                <tr><td class="ps-3 text-body-secondary">Version</td><td class="pe-3">@AppInfo.Version</td></tr>
+                <tr><td class="ps-3 text-body-secondary">Rips running</td><td class="pe-3">@Rips.Jobs.Count(j => j.State == RipState.Running)</td></tr>
+                <tr><td class="ps-3 text-body-secondary">Rips kept</td><td class="pe-3">@Rips.History().Count <span class="text-body-secondary">(@Rips.HistoryPath)</span></td></tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+@code {
+    private static string? Writable(string folder)
+    {
+        try
+        {
+            Directory.CreateDirectory(folder);
+            var probe = Path.Combine(folder, $".spinarr-{Guid.NewGuid():N}");
+            File.WriteAllText(probe, "");
+            File.Delete(probe);
+            return null;
+        }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+        {
+            return e is UnauthorizedAccessException ? "no write permission" : e.Message;
+        }
+    }
+}
