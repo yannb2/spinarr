@@ -16,8 +16,14 @@ services:
       - 8187:8187
     environment:
       TZ: America/Toronto
+      # Where albums go (Lidarr must see the same path). Default /downloads/rips/music.
+      # Spinarr__RipFolder: /downloads/rips/music
+      # FLAC level the disc page starts with, 0 to 8. Default 8.
+      # Spinarr__FlacLevel: "8"
       # Only needed to limit Spinarr to some drives; by default it uses every /dev/sr* it sees.
       # Spinarr__Devices__0: /dev/sr0
     volumes:
-      # whipper.conf (drive offsets and cache answers) and whipper's caches.
+      # drives.json (drive offsets and cache answers), rips.json, logs, keys, MusicBrainz cache.
       - /config/spinarr:/config
+      # The rips, in {Artist}/{Album (Year)} under rips/music, for Lidarr.
+      - /downloads:/downloads

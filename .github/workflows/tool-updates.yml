@@ -1,6 +1,6 @@
 name: Tool updates
 
-# Once a week, looks for a newer whipper fork commit and newer libcdio and cd-paranoia versions,
+# Once a week, looks for newer libcdio and cd-paranoia versions,
 # and opens (or updates) a pull request that bumps the ARG lines in the Dockerfile.
 # The image build on that branch is the test; nothing merges on its own.
 #
@@ -61,7 +61,7 @@ jobs:
             cat summary.md
             echo
             echo "Merge once the image build is green, then pull \`ghcr.io/yannb2/spinarr:dev\` on the media VM."
-            echo "Read what changed in whipper and cd-paranoia first: they decide how discs are read."
+            echo "Read what changed in cd-paranoia first: it decides how discs are read."
           } > body.md
           existing=$(gh pr list --head "$BRANCH" --base main --state open --json number --jq '.[0].number // empty')
           if [ -n "$existing" ]; then

@@ -28,6 +28,12 @@ public sealed record ProcessSpec(string FileName, IReadOnlyList<string> Argument
     public IReadOnlyDictionary<string, string>? Environment { get; init; }
     public string? WorkingDirectory { get; init; }
 
+    /// <summary>
+    /// How much of stdout and stderr the result keeps (the end of it). cd-paranoia prints a progress
+    /// line for every read: megabytes for one track, of which only the lines matter.
+    /// </summary>
+    public int KeepChars { get; init; } = int.MaxValue;
+
     /// <summary>Called with the process id once it runs.</summary>
     public Action<int>? Started { get; init; }
 
@@ -160,8 +166,8 @@ public static class ProcessRunner
 
         var output = new StringBuilder();
         var error = new StringBuilder();
-        var outputTask = PumpAsync(process.StandardOutput, output, onLine, timeoutSource.Token);
-        var errorTask = PumpAsync(process.StandardError, error, onLine, timeoutSource.Token);
+        var outputTask = PumpAsync(process.StandardOutput, output, spec.KeepChars, onLine, timeoutSource.Token);
+        var errorTask = PumpAsync(process.StandardError, error, spec.KeepChars, onLine, timeoutSource.Token);
 
         try
         {
@@ -190,7 +196,7 @@ public static class ProcessRunner
         }
     }
 
-    private static async Task PumpAsync(StreamReader reader, StringBuilder sink, Action<string>? onLine,
+    private static async Task PumpAsync(StreamReader reader, StringBuilder sink, int keepChars, Action<string>? onLine,
         CancellationToken cancellationToken)
     {
         var buffer = new char[4096];
@@ -206,6 +212,10 @@ public static class ProcessRunner
             lock (sink)
             {
                 sink.Append(buffer, 0, read);
+                if (sink.Length > keepChars)
+                {
+                    sink.Remove(0, sink.Length - keepChars);
+                }
             }
 
             if (onLine == null)

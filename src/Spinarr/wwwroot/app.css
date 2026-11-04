@@ -651,7 +651,7 @@
 }
 
 /* ============================================
-   Specarr
+   App pages
    ============================================ */
 
 .sv-clickable-row {
@@ -742,7 +742,7 @@ h2:focus {
     white-space: pre-line;
 }
 
-/* ---- Specarr: spec badges ---- */
+/* ---- Badges ---- */
 
 .sv-badge-muted {
     background-color: var(--bs-secondary-bg);
@@ -954,3 +954,43 @@ h2:focus {
 .lpe-add-row { display: flex; align-items: center; gap: 0.75rem; margin-top: 0.25rem; flex-wrap: wrap; }
 .lpe-add-wrapper { min-width: min(420px, 100%); flex-grow: 1; max-width: 32rem; }
 .lpe-add-wrapper input { font-size: 0.85rem; padding: 0.3rem 0.55rem; }
+
+/* ---- Logs page ---- */
+
+.sv-log-message {
+    word-break: break-word;
+}
+
+.sv-log-exception {
+    white-space: pre-wrap;
+    max-height: 24rem;
+    overflow: auto;
+}
+
+/* ---- Spinarr: disc and rip pages ---- */
+
+.sv-cover {
+    width: 120px;
+    height: 120px;
+    object-fit: cover;
+    border-radius: .375rem;
+    background-color: var(--bs-secondary-bg);
+}
+
+.sv-cover-sm {
+    width: 56px;
+    height: 56px;
+}
+
+.sv-release {
+    cursor: pointer;
+}
+
+.sv-release.active {
+    outline: 2px solid var(--bs-primary);
+}
+
+.sv-mono {
+    font-family: var(--bs-font-monospace);
+    font-size: .85em;
+}

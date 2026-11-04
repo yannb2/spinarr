@@ -10,7 +10,6 @@ public class ToolCatalogTests
     [TestMethod]
     public void ReadsInstalledVersions()
     {
-        Assert.AreEqual("0.10.0+yannb2.gfdb2f1e", ToolCatalog.InstalledVersion(Tool("whipper"), "whipper 0.10.0+yannb2.gfdb2f1e\n"));
         // What the image's cd-paranoia printed in CI.
         Assert.AreEqual("10.2", ToolCatalog.InstalledVersion(Tool("cd_paranoia"),
             "cdparanoia III release 10.2 libcdio 2.1.0 x86_64-pc-linux-gnu\n(C) 2001 Monty <monty@xiph.org> and Xiphophorus"));
@@ -31,21 +30,12 @@ public class ToolCatalogTests
     }
 
     [TestMethod]
-    public void ReadsTheNewestCommitOfTheFork()
+    public void WhipperIsNoLongerInTheImage()
     {
-        Assert.AreEqual("fdb2f1e", ToolCatalog.CommitSha("{\"sha\":\"fdb2f1e0123456789abcdef0123456789abcdef0\",\"commit\":{}}"));
-        Assert.IsNull(ToolCatalog.CommitSha("{\"message\":\"Not Found\"}"));
-        Assert.IsNull(ToolCatalog.CommitSha("not json"));
-        Assert.AreEqual("https://api.github.com/repos/yannb2/whipper/commits/develop", ToolCatalog.CommitUrl(ToolCatalog.WhipperRepository));
-    }
-
-    [TestMethod]
-    public void ACommitIsNewerWhenItIsAnotherCommit()
-    {
-        var whipper = Tool("whipper");
-        Assert.IsFalse(ToolCatalog.IsNewer(whipper, "fdb2f1e", "fdb2f1e0123456789abcdef0123456789abcdef0"));
-        Assert.IsTrue(ToolCatalog.IsNewer(whipper, "1234567", "fdb2f1e0123456789abcdef0123456789abcdef0"));
-        Assert.IsFalse(ToolCatalog.IsNewer(whipper, null, "fdb2f1e"));
+        Assert.IsFalse(ToolCatalog.All.Any(t => t.Id == "whipper"));
+        var dockerfile = File.ReadAllText(Path.Combine(RepoRoot(), "Dockerfile"));
+        Assert.DoesNotContain("WHIPPER_COMMIT", dockerfile);
+        Assert.DoesNotContain("pip3 install", dockerfile);
     }
 
     [TestMethod]

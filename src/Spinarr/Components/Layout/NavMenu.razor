@@ -1,5 +1,7 @@
 @implements IDisposable
 @inject ToolStatusService Tools
+@inject IJSRuntime JS
+@inject Spinarr.Rip.RipService Rips
 
 <nav class="sv-sidebar @(_collapsed ? "collapsed" : "") @(MobileOpen ? "sv-mobile-open" : "")">
     <div class="sv-sidebar-header d-none d-md-flex">
@@ -18,13 +20,31 @@
                 </NavLink>
             </li>
             <li class="nav-item">
+                <NavLink class="nav-link" href="rips" @onclick="Close">
+                    <i class="bi bi-clock-history"></i>
+                    <span>Rips@(_active > 0 ? $" ({_active})" : "")</span>
+                </NavLink>
+            </li>
+            <li class="nav-item">
+                <NavLink class="nav-link" href="logs" @onclick="Close">
+                    <i class="bi bi-journal-text"></i>
+                    <span>Logs</span>
+                </NavLink>
+            </li>
+            <li class="nav-item">
                 <NavLink class="nav-link" href="tools" @onclick="Close">
                     <i class="bi bi-tools"></i>
                     <span>Tools</span>
                     @if (Tools.UpdateCount > 0)
                     {
-                        <span class="badge rounded-pill text-bg-info ms-auto" title="Newer versions upstream">@Tools.UpdateCount</span>
+                        <span class="badge rounded-pill text-bg-info ms-auto" title="Newer tool versions">@Tools.UpdateCount</span>
                     }
+                </NavLink>
+            </li>
+            <li class="nav-item">
+                <NavLink class="nav-link" href="settings" @onclick="Close">
+                    <i class="bi bi-gear"></i>
+                    <span>Settings</span>
                 </NavLink>
             </li>
         </ul>
@@ -33,9 +53,9 @@
     <div class="sv-sidebar-footer">
         <ul class="nav flex-column w-100">
             <li class="nav-item">
-                <button class="nav-link w-100" onclick="spinarrTheme.toggle()">
-                    <i class="bi bi-circle-half"></i>
-                    <span>Light / dark</span>
+                <button class="nav-link w-100" @onclick="ToggleTheme" title="Switch to @(_dark ? "light" : "dark")">
+                    <i class="bi @(_dark ? "bi-moon-fill" : "bi-sun-fill") sv-theme-icon @(_dark ? "" : "light")"></i>
+                    <span>@(_dark ? "Dark" : "Light")</span>
                 </button>
             </li>
         </ul>
@@ -65,9 +85,47 @@
 
     private bool _collapsed;
 
-    protected override void OnInitialized() => Tools.Changed += OnToolsChanged;
+    /// <summary>The theme lives in the browser (localStorage); dark until the first render says otherwise.</summary>
+    private bool _dark = true;
+
+    private int _active;
+
+    protected override void OnInitialized()
+    {
+        Tools.Changed += OnToolsChanged;
+        Rips.Changed += OnRipChanged;
+        _active = Rips.Jobs.Count(j => j.State == Spinarr.Rip.RipState.Running);
+    }
 
     private void OnToolsChanged() => InvokeAsync(StateHasChanged);
+
+    // A rip moves on many times a second: redraw only when the count of running rips changes.
+    private void OnRipChanged(Spinarr.Rip.RipJob job)
+    {
+        var active = Rips.Jobs.Count(j => j.State == Spinarr.Rip.RipState.Running);
+        if (active != _active)
+        {
+            _active = active;
+            InvokeAsync(StateHasChanged);
+        }
+    }
+
+    public void Dispose()
+    {
+        Tools.Changed -= OnToolsChanged;
+        Rips.Changed -= OnRipChanged;
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            _dark = await JS.InvokeAsync<string>("spinarrTheme.get") != "light";
+            StateHasChanged();
+        }
+    }
+
+    private async Task ToggleTheme() => _dark = await JS.InvokeAsync<string>("spinarrTheme.toggle") != "light";
 
     private async Task Close()
     {
@@ -76,6 +134,4 @@
             await MobileOpenChanged.InvokeAsync(false);
         }
     }
-
-    public void Dispose() => Tools.Changed -= OnToolsChanged;
 }

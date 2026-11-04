@@ -15,7 +15,7 @@ public sealed record ToolStatus
 
     /// <summary>
     /// What the image holds: the pin, which is exactly what the Dockerfile installed (cd-paranoia only
-    /// prints part of its version, whipper a made-up one), else the version the tool reports.
+    /// prints part of its version), else the version the tool reports.
     /// </summary>
     public string? Current => Pinned ?? Installed;
 
@@ -99,7 +99,7 @@ public sealed class ToolStatusService(IOptions<SpinarrOptions> options, ILogger<
         }
         else
         {
-            var spec = new ProcessSpec(tool.Command(_options.Tools), tool.VersionArguments) { Environment = _options.WhipperEnvironment };
+            var spec = new ProcessSpec(tool.Command(_options.Tools), tool.VersionArguments);
             var result = await ProcessRunner.RunAsync(spec, TimeSpan.FromSeconds(30), null, cancellationToken);
             missing = result.NotStarted;
             installed = missing ? null : ToolCatalog.InstalledVersion(tool, result.Output + "\n" + result.Error);
@@ -123,13 +123,6 @@ public sealed class ToolStatusService(IOptions<SpinarrOptions> options, ILogger<
     {
         try
         {
-            if (tool.Upstream == UpstreamKind.GitHubCommit)
-            {
-                var json = await Http.GetStringAsync(ToolCatalog.CommitUrl(tool.UpstreamSource!), cancellationToken);
-                var sha = ToolCatalog.CommitSha(json);
-                return sha == null ? (null, "no commit in GitHub's answer") : (sha, null);
-            }
-
             var page = await Http.GetStringAsync(tool.UpstreamSource!, cancellationToken);
             var highest = ToolCatalog.HighestOnPage(tool.UpstreamPattern!, page);
             return highest == null ? (null, $"no version found on {tool.UpstreamSource}") : (highest, null);

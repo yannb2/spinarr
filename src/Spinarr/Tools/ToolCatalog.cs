@@ -1,5 +1,4 @@
 using System.Globalization;
-using System.Text.Json;
 using System.Text.RegularExpressions;
 using Spinarr.Options;
 
@@ -12,10 +11,7 @@ public enum UpstreamKind
     None,
 
     /// <summary>A web page; the highest version the regex finds.</summary>
-    Page,
-
-    /// <summary>The newest commit on a branch of a GitHub repository (owner/name@branch): the whipper fork.</summary>
-    GitHubCommit
+    Page
 }
 
 /// <summary>A tool in the image: how to ask its version, which version the image pins, where to look for a newer one.</summary>
@@ -36,13 +32,13 @@ public sealed record ToolDefinition
     public required Regex VersionPattern { get; init; }
     public UpstreamKind Upstream { get; init; }
 
-    /// <summary>The page URL, or owner/name@branch for a commit.</summary>
+    /// <summary>The page the newest version is read from.</summary>
     public string? UpstreamSource { get; init; }
 
     public Regex? UpstreamPattern { get; init; }
     public string? ReleaseNotes { get; init; }
 
-    /// <summary>The version the Dockerfile installed (SPINARR_PIN_WHIPPER...).</summary>
+    /// <summary>The version the Dockerfile installed (SPINARR_PIN_CD_PARANOIA...).</summary>
     public string? Pinned => Environment.GetEnvironmentVariable(PinVariable);
 
     public string PinVariable => $"SPINARR_PIN_{Id.ToUpperInvariant()}";
@@ -50,24 +46,12 @@ public sealed record ToolDefinition
 
 public static partial class ToolCatalog
 {
-    public const string WhipperRepository = "yannb2/whipper@develop";
-
     public static readonly IReadOnlyList<ToolDefinition> All =
     [
         new()
         {
-            Id = "whipper", Name = "whipper (fork)",
-            Purpose = "Rips the CD: secure reads, AccurateRip check, FLAC level, offsets, the rip log.",
-            Command = t => t.Whipper, VersionArguments = ["-v"],
-            VersionPattern = WhipperVersion(),
-            Upstream = UpstreamKind.GitHubCommit,
-            UpstreamSource = WhipperRepository,
-            ReleaseNotes = "https://github.com/yannb2/whipper/commits/develop"
-        },
-        new()
-        {
             Id = "cd_paranoia", Name = "cd-paranoia",
-            Purpose = "Reads the audio from the disc for whipper, with error correction.",
+            Purpose = "Reads the audio from the disc: secure reads with error correction, and the drive cache check.",
             Command = t => t.CdParanoia, VersionArguments = ["--version"],
             VersionPattern = ParanoiaVersion(),
             Upstream = UpstreamKind.Page,
@@ -78,7 +62,7 @@ public static partial class ToolCatalog
         new()
         {
             Id = "libcdio", Name = "libcdio",
-            Purpose = "Talks to the drive: table of contents, drive name and firmware.",
+            Purpose = "The CD library cd-paranoia is built on.",
             VersionFile = "/usr/lib/pkgconfig/libcdio.pc",
             VersionPattern = PkgConfigVersion(),
             Upstream = UpstreamKind.Page,
@@ -89,7 +73,7 @@ public static partial class ToolCatalog
         new()
         {
             Id = "cdrdao", Name = "cdrdao",
-            Purpose = "Reads the disc's table of contents, pre-gaps and hidden track for whipper.",
+            Purpose = "Reads the disc's table of contents: pre-gaps, hidden track, ISRCs, CD-Text.",
             Command = t => t.Cdrdao,
             VersionPattern = CdrdaoVersion()
         },
@@ -115,50 +99,9 @@ public static partial class ToolCatalog
             .FirstOrDefault();
     }
 
-    /// <summary>The commit id in GitHub's answer for a branch (repos/o/n/commits/branch), shortened to 7.</summary>
-    public static string? CommitSha(string json)
-    {
-        try
-        {
-            using var document = JsonDocument.Parse(json);
-            return document.RootElement.ValueKind == JsonValueKind.Object
-                   && document.RootElement.TryGetProperty("sha", out var sha)
-                   && sha.GetString() is { Length: >= 7 } value
-                ? value[..7]
-                : null;
-        }
-        catch (JsonException)
-        {
-            return null;
-        }
-    }
-
-    /// <summary>The API address for the newest commit of "owner/name@branch".</summary>
-    public static string CommitUrl(string source)
-    {
-        var (repository, branch) = source.Split('@') is [var r, var b] ? (r, b) : (source, "main");
-        return $"https://api.github.com/repos/{repository}/commits/{branch}";
-    }
-
-    /// <summary>
-    /// True when upstream has something newer than what the image holds. A commit is newer when it
-    /// is a different commit: the pin is the full id, upstream the first 7 characters.
-    /// </summary>
-    public static bool IsNewer(ToolDefinition tool, string? latest, string? current)
-    {
-        if (latest == null || current == null)
-        {
-            return false;
-        }
-
-        return tool.Upstream == UpstreamKind.GitHubCommit
-            ? !current.StartsWith(latest, StringComparison.OrdinalIgnoreCase)
-            : VersionComparer.Instance.Compare(latest, current) > 0;
-    }
-
-    // "whipper 0.10.1.dev12+g71251a0", or whatever version the image build gave it.
-    [GeneratedRegex(@"whipper (\S+)")]
-    private static partial Regex WhipperVersion();
+    /// <summary>True when upstream has something newer than what the image holds.</summary>
+    public static bool IsNewer(ToolDefinition tool, string? latest, string? current) =>
+        latest != null && current != null && VersionComparer.Instance.Compare(latest, current) > 0;
 
     // "cdparanoia III release 10.2 libcdio 2.1.0 x86_64-pc-linux-gnu": only the paranoia half of the
     // package version (10.2+2.0.1) is printed; a full one is taken when a build prints it.
