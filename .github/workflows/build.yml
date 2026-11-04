@@ -98,8 +98,9 @@ jobs:
           docker exec smoke sh -c 'cdrdao 2>&1 | head -n 1'
           docker exec smoke sh -c 'flac --version && metaflac --version && sox --version'
           docker exec smoke sh -c 'python3 -c "import cdio, discid, accuraterip, musicbrainzngs, mutagen; print(\"python modules ok\")"'
-          # whipper's own commands start (no drive in CI, so only their help).
-          docker exec smoke sh -c 'whipper offset find --help >/dev/null && whipper drive analyze --help >/dev/null'
+          # whipper's own commands load. Not "offset find --help": a command that takes -d looks for a
+          # drive first and stops with "No CD-DA drives found!", and CI has none.
+          docker exec smoke sh -c 'whipper offset --help | grep -q find && whipper drive --help | grep -q analyze'
           docker logs smoke
           docker rm -f smoke
 
