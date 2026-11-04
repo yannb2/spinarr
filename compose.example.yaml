@@ -1,0 +1,23 @@
+# Spinarr on the media VM. The CD drive is passed in by its stable name, so it stays the same
+# drive after a reboot or a replug (both Vantec enclosures share a USB id, so the by-id name, not
+# the USB id, tells them apart). Find it with: ls -l /dev/disk/by-id/ | grep sr
+services:
+  spinarr:
+    image: ghcr.io/yannb2/spinarr:dev
+    container_name: spinarr
+    restart: unless-stopped
+    user: 1000:1000
+    # The group that owns /dev/sr* on the VM (getent group cdrom: 24 on Debian and Ubuntu).
+    group_add:
+      - "24"
+    devices:
+      - /dev/disk/by-id/usb-HL-DT-ST_DVDRAM_GH40L_XXXXXXXX-0:0:/dev/sr0
+    ports:
+      - 8187:8187
+    environment:
+      TZ: America/Toronto
+      # Only needed to limit Spinarr to some drives; by default it uses every /dev/sr* it sees.
+      # Spinarr__Devices__0: /dev/sr0
+    volumes:
+      # whipper.conf (drive offsets and cache answers) and whipper's caches.
+      - /config/spinarr:/config

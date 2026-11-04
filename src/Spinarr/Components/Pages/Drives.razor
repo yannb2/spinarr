@@ -1,0 +1,390 @@
+@page "/"
+@implements IAsyncDisposable
+@inject DriveScanner Scanner
+@inject DriveTasks Tasks
+@inject IOptions<SpinarrOptions> Options
+@inject Spinarr.Toasts Toasts
+@inject IJSRuntime Js
+@using Microsoft.Extensions.Options
+
+<PageTitle>Drives · Spinarr</PageTitle>
+
+<div class="d-flex align-items-center mb-3 gap-2">
+    <h2 class="mb-0 me-auto">Drives</h2>
+    <button class="btn btn-sm btn-outline-secondary" @onclick="ScanAsync" disabled="@_scanning">
+        <i class="bi bi-arrow-clockwise"></i> Look again
+    </button>
+</div>
+
+<p class="text-body-secondary small">
+    Set each drive up once, with a well-known audio CD in it: find its read offset, then check its audio cache.
+    Whipper saves both answers in <code>@Options.Value.WhipperConfigPath</code> and uses them on every rip.
+</p>
+
+@if (_drives == null)
+{
+    <div class="text-body-secondary"><span class="spinner-border spinner-border-sm me-2"></span>Looking for drives…</div>
+}
+else if (_drives.Count == 0)
+{
+    <div class="alert alert-warning">
+        <div class="fw-semibold mb-1">No disc drive in the container.</div>
+        <div class="small">
+            Pass the drive in compose by its stable name, and add the group that owns it on the host
+            (<code>getent group cdrom</code>):
+            <pre class="mb-0 mt-2">devices:
+  - /dev/disk/by-id/usb-HL-DT-ST_DVDRAM_GH40L_...:/dev/sr0
+group_add:
+  - "24"</pre>
+        </div>
+    </div>
+}
+else
+{
+    @foreach (var drive in _drives)
+    {
+        var settings = WhipperConfig.Find(_settings, drive);
+        var state = _states.GetValueOrDefault(drive.Device);
+        var task = Tasks.Get(drive.Device);
+        var running = task?.State == DriveTaskState.Running;
+        // Unknown: the drive did not answer the tray question (some USB bridges); let whipper try.
+        var hasCd = state is not (DiscState.NoDisc or DiscState.TrayOpen or DiscState.DataDisc);
+        <div class="card mb-3">
+            <div class="card-header d-flex align-items-center gap-2 flex-wrap">
+                <i class="bi bi-vinyl fs-5"></i>
+                <span class="fw-semibold">@drive.DisplayName</span>
+                @if (drive.Release.Length > 0)
+                {
+                    <span class="badge text-bg-secondary" title="Firmware">fw @drive.Release</span>
+                }
+                <code class="small">@drive.Device</code>
+                <span class="ms-auto">@StateBadge(state)</span>
+                <button class="btn btn-sm btn-outline-secondary" @onclick="() => Eject(drive)" disabled="@running" title="Open the tray">
+                    <i class="bi bi-eject"></i>
+                </button>
+            </div>
+            <div class="card-body">
+                @if (!drive.Identified)
+                {
+                    <div class="alert alert-warning small py-2">
+                        The kernel gave no name for this drive, so whipper can't save its settings. Check that compose passes
+                        the device itself (not a copy of the node) and that <code>/sys</code> is readable.
+                    </div>
+                }
+
+                <div class="table-responsive">
+                    <table class="table align-middle mb-2">
+                        <tbody>
+                        <tr>
+                            <th class="text-nowrap" style="width: 11rem">Read offset</th>
+                            <td>
+                                @if (settings?.ReadOffset is { } offset)
+                                {
+                                    <span class="fw-semibold">@Format.Offset(offset)</span>
+                                    <span class="small text-body-secondary ms-1">samples</span>
+                                }
+                                else
+                                {
+                                    <span class="badge text-bg-warning">not found yet</span>
+                                    <span class="small text-body-secondary ms-1">rips can't be checked against AccurateRip without it</span>
+                                }
+                            </td>
+                            <td class="text-end">
+                                <button class="btn btn-sm btn-outline-primary text-nowrap" disabled="@(running || !hasCd || !drive.Identified)"
+                                        title="@(hasCd ? "Rips track 1 at each likely offset until AccurateRip agrees (minutes to an hour)" : "Put a well-known audio CD in first")"
+                                        @onclick="() => Start(drive, DriveTaskKind.FindOffset)">
+                                    <i class="bi bi-search"></i> Find offset
+                                </button>
+                            </td>
+                        </tr>
+                        <tr>
+                            <th class="text-nowrap">Audio cache</th>
+                            <td>
+                                @switch (settings?.DefeatsCache)
+                                {
+                                    case true:
+                                        <span class="text-success"><i class="bi bi-check-circle"></i> cd-paranoia can defeat it</span>
+                                        break;
+                                    case false:
+                                        <span class="text-warning"><i class="bi bi-exclamation-circle"></i> cd-paranoia cannot defeat it</span>
+                                        <div class="small text-body-secondary">Rips still work: whipper reads each track twice and checks it against AccurateRip.</div>
+                                        break;
+                                    default:
+                                        <span class="badge text-bg-secondary">not checked</span>
+                                        break;
+                                }
+                            </td>
+                            <td class="text-end">
+                                <button class="btn btn-sm btn-outline-primary text-nowrap" disabled="@(running || !hasCd || !drive.Identified)"
+                                        title="@(hasCd ? "Reads the disc a few times to see if the drive's cache gets in the way (a few minutes)" : "Put an audio CD in first")"
+                                        @onclick="() => Start(drive, DriveTaskKind.AnalyzeCache)">
+                                    <i class="bi bi-speedometer2"></i> Check cache
+                                </button>
+                            </td>
+                        </tr>
+                        </tbody>
+                    </table>
+                </div>
+
+                <details class="small mb-2" @key="drive.Device">
+                    <summary class="text-body-secondary">Set by hand</summary>
+                    <div class="d-flex flex-wrap align-items-end gap-2 mt-2">
+                        <div>
+                            <label class="form-label mb-1">Read offset</label>
+                            <input class="form-control form-control-sm" type="number" style="width: 8rem"
+                                   value="@(EditFor(drive).Offset?.ToString() ?? settings?.ReadOffset?.ToString() ?? "")"
+                                   @onchange="e => EditFor(drive).Offset = int.TryParse(e.Value?.ToString(), out var v) ? v : null"/>
+                        </div>
+                        <div>
+                            <label class="form-label mb-1">Audio cache</label>
+                            <select class="form-select form-select-sm" style="width: 12rem"
+                                    @onchange="e => EditFor(drive).Cache = e.Value?.ToString()">
+                                <option value="" selected="@(Cache(drive, settings) == "")">leave as it is</option>
+                                <option value="true" selected="@(Cache(drive, settings) == "true")">can defeat it</option>
+                                <option value="false" selected="@(Cache(drive, settings) == "false")">cannot defeat it</option>
+                            </select>
+                        </div>
+                        <button class="btn btn-sm btn-outline-primary" @onclick="() => SaveByHand(drive)" disabled="@(running || !drive.Identified)">Save</button>
+                    </div>
+                    <div class="text-body-secondary mt-1">
+                        For a drive you already know, from the <a href="https://www.accuraterip.com/driveoffsets.htm" target="_blank" rel="noopener">AccurateRip list</a>
+                        or an old <code>whipper.conf</code>. The value whipper finds itself is the safer one.
+                    </div>
+                </details>
+
+                @if (drive.Links.Count > 0)
+                {
+                    <div class="small text-body-secondary">
+                        Stable name: @foreach (var link in drive.Links)
+                        {
+                            <code class="me-2">@link</code>
+                        }
+                    </div>
+                }
+
+                @if (task != null)
+                {
+                    <div class="border rounded p-2 mt-3">
+                        <div class="d-flex align-items-center gap-2 mb-1 flex-wrap">
+                            <span class="fw-semibold">@task.Title</span>
+                            @TaskBadge(task)
+                            @if (task.Progress != null)
+                            {
+                                <span class="small text-body-secondary">@task.Progress</span>
+                            }
+                            <span class="small text-body-secondary">@Format.Duration((task.EndedAt ?? DateTime.UtcNow) - task.StartedAt)</span>
+                            @if (running)
+                            {
+                                <button class="btn btn-sm btn-outline-danger ms-auto" @onclick="() => Tasks.Cancel(drive.Device)">Stop</button>
+                            }
+                        </div>
+                        @if (task.Summary != null)
+                        {
+                            <div class="small mb-2 @(task.State == DriveTaskState.Done ? "text-success" : "text-danger")">@task.Summary</div>
+                        }
+                        <pre id="log-@Id(drive)" class="small mb-0 p-2 bg-body-tertiary rounded" style="max-height: 18rem; overflow: auto">@string.Join('\n', task.Lines.TakeLast(300))</pre>
+                    </div>
+                }
+            </div>
+        </div>
+    }
+}
+
+@code {
+    private sealed class Edit
+    {
+        public int? Offset { get; set; }
+        public string? Cache { get; set; }
+    }
+
+    private IReadOnlyList<OpticalDrive>? _drives;
+    private IReadOnlyList<DriveSettings> _settings = [];
+    private readonly Dictionary<string, DiscState> _states = [];
+    private readonly Dictionary<string, Edit> _edits = [];
+    private readonly Dictionary<string, DriveTaskState> _seen = [];
+    private bool _scanning;
+    private PeriodicTimer? _timer;
+    private CancellationTokenSource? _stop;
+    private DateTime _lastRender = DateTime.MinValue;
+
+    protected override async Task OnInitializedAsync()
+    {
+        Tasks.Changed += OnTaskChanged;
+        await ScanAsync();
+        _stop = new CancellationTokenSource();
+        _timer = new PeriodicTimer(TimeSpan.FromSeconds(3));
+        _ = PollAsync(_stop.Token);
+    }
+
+    private async Task ScanAsync()
+    {
+        _scanning = true;
+        _drives = await Scanner.ScanAsync();
+        ReadSettings();
+        ReadStates();
+        _scanning = false;
+    }
+
+    private void ReadSettings() => _settings = WhipperConfig.Read(Options.Value.WhipperConfigPath);
+
+    private void ReadStates()
+    {
+        foreach (var drive in _drives ?? [])
+        {
+            _states[drive.Device] = CdromDevice.State(drive.Device);
+        }
+    }
+
+    // The tray and the disc change without telling anyone: look every few seconds while the page is open.
+    private async Task PollAsync(CancellationToken cancellationToken)
+    {
+        try
+        {
+            while (_timer != null && await _timer.WaitForNextTickAsync(cancellationToken))
+            {
+                var before = string.Join(',', _states.Values);
+                ReadStates();
+                if (before != string.Join(',', _states.Values))
+                {
+                    await InvokeAsync(StateHasChanged);
+                }
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            // Page closed.
+        }
+    }
+
+    private void OnTaskChanged(string device)
+    {
+        var state = Tasks.Get(device)?.State;
+        var ended = state is { } s && s != DriveTaskState.Running && _seen.GetValueOrDefault(device) == DriveTaskState.Running;
+        if (state is { } now)
+        {
+            _seen[device] = now;
+        }
+
+        // A task prints a lot: draw at most twice a second, but always when it ends.
+        if (!ended && DateTime.UtcNow - _lastRender < TimeSpan.FromMilliseconds(500))
+        {
+            return;
+        }
+
+        _lastRender = DateTime.UtcNow;
+        _ = InvokeAsync(async () =>
+        {
+            if (ended)
+            {
+                ReadSettings();
+            }
+
+            StateHasChanged();
+            await ScrollLog(device);
+        });
+    }
+
+    private async Task ScrollLog(string device)
+    {
+        try
+        {
+            await Js.InvokeVoidAsync("spinarrScrollToEnd", $"log-{Id(device)}");
+        }
+        catch (JSDisconnectedException)
+        {
+            // Page closed.
+        }
+    }
+
+    private void Start(OpticalDrive drive, DriveTaskKind kind)
+    {
+        _seen[drive.Device] = DriveTaskState.Running;
+        if (Tasks.Start(drive, kind) is { } problem)
+        {
+            Toasts.Warning(problem);
+        }
+    }
+
+    private void Eject(OpticalDrive drive)
+    {
+        if (CdromDevice.Eject(drive.Device) is { } problem)
+        {
+            Toasts.Error(problem);
+        }
+
+        ReadStates();
+    }
+
+    private Edit EditFor(OpticalDrive drive)
+    {
+        if (!_edits.TryGetValue(drive.Device, out var edit))
+        {
+            _edits[drive.Device] = edit = new Edit();
+        }
+
+        return edit;
+    }
+
+    private string Cache(OpticalDrive drive, DriveSettings? settings) => EditFor(drive).Cache ?? "";
+
+    private void SaveByHand(OpticalDrive drive)
+    {
+        var edit = EditFor(drive);
+        var cache = edit.Cache switch { "true" => true, "false" => (bool?)false, _ => null };
+        if (edit.Offset == null && cache == null)
+        {
+            Toasts.Warning("Nothing to save: type an offset or pick a cache answer.");
+            return;
+        }
+
+        try
+        {
+            var path = Options.Value.WhipperConfigPath;
+            Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+            var text = File.Exists(path) ? File.ReadAllText(path) : "";
+            File.WriteAllText(path, WhipperConfig.SetDrive(text, drive, edit.Offset, cache));
+            _edits.Remove(drive.Device);
+            ReadSettings();
+            Toasts.Success("Saved in whipper.conf.");
+        }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+        {
+            Toasts.Error($"Could not write whipper.conf: {e.Message}");
+        }
+    }
+
+    private static string Id(OpticalDrive drive) => Id(drive.Device);
+
+    private static string Id(string device) => device.Replace('/', '-').Trim('-');
+
+    private static RenderFragment StateBadge(DiscState state) => state switch
+    {
+        DiscState.AudioCd => @<span class="badge text-bg-success"><i class="bi bi-music-note-beamed"></i> Audio CD</span>,
+        DiscState.MixedCd => @<span class="badge text-bg-success" title="Audio tracks plus a data track"><i class="bi bi-music-note-beamed"></i> Audio CD + data</span>,
+        DiscState.DataDisc => @<span class="badge text-bg-secondary">Data disc</span>,
+        DiscState.NoDisc => @<span class="badge text-bg-secondary">Empty</span>,
+        DiscState.TrayOpen => @<span class="badge text-bg-secondary">Tray open</span>,
+        DiscState.NotReady => @<span class="badge text-bg-warning">Reading the disc…</span>,
+        _ => @<span class="badge text-bg-secondary" title="The drive did not answer">Unknown</span>
+    };
+
+    private static RenderFragment TaskBadge(DriveTask task) => task.State switch
+    {
+        DriveTaskState.Running => @<span class="badge text-bg-primary"><span class="spinner-border spinner-border-sm me-1" style="width: .7rem; height: .7rem"></span>running</span>,
+        DriveTaskState.Done => @<span class="badge text-bg-success">done</span>,
+        DriveTaskState.Cancelled => @<span class="badge text-bg-secondary">stopped</span>,
+        _ => @<span class="badge text-bg-danger">failed</span>
+    };
+
+    public async ValueTask DisposeAsync()
+    {
+        Tasks.Changed -= OnTaskChanged;
+        if (_stop != null)
+        {
+            await _stop.CancelAsync();
+            _stop.Dispose();
+        }
+
+        _timer?.Dispose();
+    }
+}
