@@ -79,7 +79,7 @@ public static partial class ToolCatalog
         {
             Id = "libcdio", Name = "libcdio",
             Purpose = "Talks to the drive: table of contents, drive name and firmware.",
-            VersionFile = "/usr/local/lib/pkgconfig/libcdio.pc",
+            VersionFile = "/usr/lib/pkgconfig/libcdio.pc",
             VersionPattern = PkgConfigVersion(),
             Upstream = UpstreamKind.Page,
             UpstreamSource = "https://ftp.gnu.org/gnu/libcdio/",

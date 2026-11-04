@@ -6,7 +6,8 @@ ARG LIBCDIO_VERSION=2.1.0
 ARG LIBCDIO_PARANOIA_VERSION=10.2+2.0.1
 
 # libcdio and cd-paranoia from GNU's tarballs, as whipper's own Dockerfile does: the distribution
-# packages split them in ways whipper can't use. Built on the same Ubuntu as the final image.
+# packages split them in ways whipper can't use. Built on the same Ubuntu as the final image, into
+# /usr: pycdio 2.1.0's setup.py breaks on the -I/-L flags pkg-config gives for any other prefix.
 FROM mcr.microsoft.com/dotnet/aspnet:10.0 AS cdio
 ARG LIBCDIO_VERSION
 ARG LIBCDIO_PARANOIA_VERSION
@@ -18,7 +19,7 @@ RUN set -eux; \
     curl -fsSL "https://ftp.gnu.org/gnu/libcdio/libcdio-${LIBCDIO_VERSION}.tar.bz2" | tar -xj; \
     cd "libcdio-${LIBCDIO_VERSION}"; \
     autoreconf -fi; \
-    ./configure --prefix=/usr/local --disable-dependency-tracking --disable-cxx --disable-example-progs --disable-static; \
+    ./configure --prefix=/usr --disable-dependency-tracking --disable-cxx --disable-example-progs --disable-static; \
     make -j"$(nproc)"; \
     make install; \
     make install DESTDIR=/out
@@ -26,10 +27,10 @@ RUN set -eux; \
     curl -fsSL "https://ftp.gnu.org/gnu/libcdio/libcdio-paranoia-${LIBCDIO_PARANOIA_VERSION}.tar.bz2" | tar -xj; \
     cd "libcdio-paranoia-${LIBCDIO_PARANOIA_VERSION}"; \
     autoreconf -fi; \
-    ./configure --prefix=/usr/local --disable-dependency-tracking --disable-example-progs --disable-static; \
+    ./configure --prefix=/usr --disable-dependency-tracking --disable-example-progs --disable-static; \
     make -j"$(nproc)"; \
     make install DESTDIR=/out; \
-    ls -l /out/usr/local/bin
+    ls -l /out/usr/bin
 
 FROM mcr.microsoft.com/dotnet/sdk:10.0 AS build
 WORKDIR /src
@@ -48,7 +49,7 @@ ARG WHIPPER_COMMIT
 ARG LIBCDIO_VERSION
 ARG LIBCDIO_PARANOIA_VERSION
 
-COPY --from=cdio /out/usr/local/ /usr/local/
+COPY --from=cdio /out/usr/ /usr/
 RUN ldconfig
 
 # whipper and what it runs: cdrdao (table of contents), flac, sox (peak level), libdiscid
