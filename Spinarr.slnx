@@ -1,0 +1,11 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/Spinarr/Spinarr.csproj" />
+  </Folder>
+  <Folder Name="/arrkit/">
+    <Project Path="arrkit/src/Arrkit/Arrkit.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/Spinarr.Tests/Spinarr.Tests.csproj" />
+  </Folder>
+</Solution>

@@ -1,0 +1,78 @@
+using Spinarr.Tools;
+
+namespace Spinarr.Tests;
+
+[TestClass]
+public class ToolCatalogTests
+{
+    private static ToolDefinition Tool(string id) => ToolCatalog.All.Single(t => t.Id == id);
+
+    [TestMethod]
+    public void ReadsInstalledVersions()
+    {
+        Assert.AreEqual("0.10.0+yannb2.gfdb2f1e", ToolCatalog.InstalledVersion(Tool("whipper"), "whipper 0.10.0+yannb2.gfdb2f1e\n"));
+        Assert.AreEqual("10.2+2.0.1", ToolCatalog.InstalledVersion(Tool("cd_paranoia"), "cd-paranoia 10.2+2.0.1 (libcdio 2.1.0)"));
+        Assert.AreEqual("10.2+2.0.1", ToolCatalog.InstalledVersion(Tool("cd_paranoia"), "This is cd-paranoia version 10.2+2.0.1"));
+        Assert.AreEqual("2.1.0", ToolCatalog.InstalledVersion(Tool("libcdio"), "prefix=/usr/local\nName: libcdio\nVersion: 2.1.0\nLibs: -lcdio"));
+        Assert.AreEqual("1.2.5", ToolCatalog.InstalledVersion(Tool("cdrdao"), "Cdrdao version 1.2.5 - (C) Andreas Mueller <andreas@daneb.de>"));
+        Assert.AreEqual("1.4.3", ToolCatalog.InstalledVersion(Tool("flac"), "flac 1.4.3"));
+    }
+
+    [TestMethod]
+    public void FindsTheNewestOnTheGnuListing()
+    {
+        const string page = "<a href=\"libcdio-2.1.0.tar.bz2\">libcdio-2.1.0.tar.bz2</a> <a href=\"libcdio-2.2.0.tar.bz2.sig\">"
+                            + "libcdio-2.2.0.tar.bz2.sig</a> <a>libcdio-paranoia-10.2+2.0.1.tar.bz2</a> <a>libcdio-paranoia-10.2+2.0.2.tar.bz2</a>";
+
+        Assert.AreEqual("2.2.0", ToolCatalog.HighestOnPage(Tool("libcdio").UpstreamPattern!, page));
+        Assert.AreEqual("10.2+2.0.2", ToolCatalog.HighestOnPage(Tool("cd_paranoia").UpstreamPattern!, page));
+    }
+
+    [TestMethod]
+    public void ReadsTheNewestCommitOfTheFork()
+    {
+        Assert.AreEqual("fdb2f1e", ToolCatalog.CommitSha("{\"sha\":\"fdb2f1e0123456789abcdef0123456789abcdef0\",\"commit\":{}}"));
+        Assert.IsNull(ToolCatalog.CommitSha("{\"message\":\"Not Found\"}"));
+        Assert.IsNull(ToolCatalog.CommitSha("not json"));
+        Assert.AreEqual("https://api.github.com/repos/yannb2/whipper/commits/develop", ToolCatalog.CommitUrl(ToolCatalog.WhipperRepository));
+    }
+
+    [TestMethod]
+    public void ACommitIsNewerWhenItIsAnotherCommit()
+    {
+        var whipper = Tool("whipper");
+        Assert.IsFalse(ToolCatalog.IsNewer(whipper, "fdb2f1e", "fdb2f1e0123456789abcdef0123456789abcdef0"));
+        Assert.IsTrue(ToolCatalog.IsNewer(whipper, "1234567", "fdb2f1e0123456789abcdef0123456789abcdef0"));
+        Assert.IsFalse(ToolCatalog.IsNewer(whipper, null, "fdb2f1e"));
+    }
+
+    [TestMethod]
+    public void VersionsCompareAsNumbers()
+    {
+        var paranoia = Tool("cd_paranoia");
+        Assert.IsTrue(ToolCatalog.IsNewer(paranoia, "10.2+2.0.10", "10.2+2.0.2"));
+        Assert.IsFalse(ToolCatalog.IsNewer(paranoia, "10.2+2.0.1", "10.2+2.0.1"));
+        Assert.IsTrue(ToolCatalog.IsNewer(Tool("libcdio"), "2.1.10", "2.1.9"));
+    }
+
+    [TestMethod]
+    public void EveryPinnedToolHasAnArgInTheDockerfile()
+    {
+        var dockerfile = File.ReadAllText(Path.Combine(RepoRoot(), "Dockerfile"));
+        foreach (var tool in ToolCatalog.All.Where(t => t.Upstream != UpstreamKind.None))
+        {
+            StringAssert.Contains(dockerfile, $"{tool.PinVariable}=", tool.Name);
+        }
+    }
+
+    internal static string RepoRoot()
+    {
+        var folder = new DirectoryInfo(AppContext.BaseDirectory);
+        while (folder != null && !File.Exists(Path.Combine(folder.FullName, "Spinarr.slnx")))
+        {
+            folder = folder.Parent;
+        }
+
+        return folder?.FullName ?? throw new InvalidOperationException("Spinarr.slnx not found above the test folder");
+    }
+}
