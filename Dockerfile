@@ -5,7 +5,7 @@ ARG LIBCDIO_PARANOIA_VERSION=10.2+2.0.2
 
 # libcdio and cd-paranoia from GNU's tarballs, so the pinned versions are the ones that run (Ubuntu's
 # packages lag behind). Built on the same Ubuntu as the final image, into /usr.
-FROM mcr.microsoft.com/dotnet/aspnet:10.0 AS cdio
+FROM mcr.microsoft.com/dotnet/aspnet:10.0-resolute AS cdio
 ARG LIBCDIO_VERSION
 ARG LIBCDIO_PARANOIA_VERSION
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -29,7 +29,7 @@ RUN set -eux; \
     make install DESTDIR=/out; \
     ls -l /out/usr/bin
 
-FROM mcr.microsoft.com/dotnet/sdk:10.0 AS build
+FROM mcr.microsoft.com/dotnet/sdk:10.0-resolute AS build
 WORKDIR /src
 COPY global.json ./
 COPY src/Spinarr/Spinarr.csproj src/Spinarr/
@@ -41,7 +41,7 @@ COPY src/ src/
 COPY arrkit/src/ arrkit/src/
 RUN dotnet publish src/Spinarr/Spinarr.csproj -c Release -o /app --no-restore
 
-FROM mcr.microsoft.com/dotnet/aspnet:10.0
+FROM mcr.microsoft.com/dotnet/aspnet:10.0-resolute
 ARG LIBCDIO_VERSION
 ARG LIBCDIO_PARANOIA_VERSION
 
